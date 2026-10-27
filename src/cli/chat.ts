@@ -20,18 +20,26 @@ console.log(`Copiloto de la barbería (modelo: ${env.MODEL_AGENT}). Escribí "sa
 // El historial es lo que devuelve el grafo en cada turno; acá solo se lo volvemos a pasar.
 let messages: BaseMessage[] = [];
 
-while (true) {
-  const input = (await rl.question("Vos: ")).trim();
-  if (!input) continue;
+let closed = false;
+rl.on("close", () => (closed = true));
+rl.setPrompt("Vos: ");
+rl.prompt();
+
+// for await encola las líneas y termina solo cuando se cierra la entrada (Ctrl+Z / EOF).
+for await (const line of rl) {
+  const input = line.trim();
   if (input.toLowerCase() === "salir") break;
 
-  try {
-    const state = await graph.invoke({ messages: [...messages, new HumanMessage(input)] });
-    messages = state.messages;
-    console.log(`\nCopiloto: ${messages.at(-1)?.text}\n`);
-  } catch (error) {
-    console.error(`\nError al llamar al modelo: ${(error as Error).message}\n`);
+  if (input) {
+    try {
+      const state = await graph.invoke({ messages: [...messages, new HumanMessage(input)] });
+      messages = state.messages;
+      console.log(`\nCopiloto: ${messages.at(-1)?.text}\n`);
+    } catch (error) {
+      console.error(`\nError al llamar al modelo: ${(error as Error).message}\n`);
+    }
   }
+  if (!closed) rl.prompt();
 }
 
 rl.close();
