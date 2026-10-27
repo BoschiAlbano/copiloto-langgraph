@@ -78,6 +78,112 @@ tests/graph.test.ts, tests/db.test.ts
 
 **Dependencias:** `@langchain/langgraph`, `@langchain/core`, `@langchain/anthropic`, `zod`, `prisma` y `@prisma/client`, `tsx`, `typescript`, `vitest`. Gestor: npm.
 
+## Mapas
+
+**1. Qué pasa en cada turno de la conversación**
+
+```mermaid
+flowchart LR
+    P([Persona escribe]) --> INV["graph.invoke con messages<br/>(historial + mensaje nuevo)"]
+    INV --> S((START))
+    subgraph GRAFO["Grafo compilado"]
+        S --> CHAT["nodo chat<br/>prompt del sistema + messages<br/>llama a Claude"]
+        CHAT --> FIN((END))
+    end
+    CHAT -. "devuelve solo el mensaje nuevo" .-> EST[("Estado<br/>campo messages<br/>reducer: agrega")]
+    FIN --> RES["Resultado: historial completo"]
+    RES --> TERM["La terminal imprime la última respuesta<br/>y guarda el historial para el próximo turno"]
+    TERM -.-> P
+```
+
+**2. Mapa conceptual de LangGraph (lo practicado en esta fase)**
+
+```mermaid
+flowchart TD
+    SG["StateGraph"]
+    SG -- "se construye con" --> ES["Esquema de estado<br/>StateSchema"]
+    SG -- "agrega" --> NO["Nodos<br/>funciones: estado → actualización parcial"]
+    SG -- "conecta con" --> AR["Aristas<br/>START → chat → END"]
+    ES -- "cada campo puede tener" --> RE["Reducer<br/>cómo se combina lo nuevo con lo viejo"]
+    RE -- "ejemplo" --> MV["MessagesValue<br/>agrega mensajes, no reemplaza"]
+    SG -- "compile()" --> GC["Grafo ejecutable"]
+    GC -- "invoke()" --> RS["Estado final"]
+    NO -- "recibe por parámetro" --> MO["Modelo<br/>ChatAnthropic en producción<br/>modelo falso en tests"]
+    GC -. "fase 4: con checkpointer recuerda entre ejecuciones" .-> CK["Checkpointer<br/>Postgres"]
+    GC -. "fase 2: nodo de herramientas y ciclo" .-> HE["Herramientas"]
+```
+
+Las líneas punteadas son lo que todavía no existe: se incorporan en las fases indicadas.
+
+**3. Modelo de datos del negocio**
+
+```mermaid
+erDiagram
+    clients ||--o{ appointments : "reserva"
+    staff ||--o{ appointments : "atiende"
+    services ||--o{ appointments : "es de tipo"
+    clients |o--o{ sales : "compra"
+    sales ||--|{ sale_items : "se detalla en"
+    products |o--o{ sale_items : "si es producto"
+    services |o--o{ sale_items : "si es servicio"
+
+    clients {
+        int id PK
+        string name
+        string notes
+    }
+    staff {
+        int id PK
+        string name
+        bool active
+    }
+    services {
+        int id PK
+        string name
+        int duration_min
+        int price
+    }
+    appointments {
+        int id PK
+        int client_id FK
+        int staff_id FK
+        int service_id FK
+        timestamptz starts_at
+        timestamptz ends_at
+        enum status
+    }
+    products {
+        int id PK
+        string sku
+        int price
+        int stock
+        int min_stock
+    }
+    sales {
+        int id PK
+        int client_id FK
+        int total
+        enum payment_method
+    }
+    sale_items {
+        int id PK
+        int sale_id FK
+        int product_id FK
+        int service_id FK
+        int qty
+        int unit_price
+    }
+    action_log {
+        int id PK
+        string thread_id
+        string action
+        json payload
+        string decision
+    }
+```
+
+`action_log` no se relaciona con las demás tablas: guarda qué propuso el agente y qué decidió la persona (se usa desde la fase 5). Reglas que el diagrama no muestra: un barbero no puede tener turnos superpuestos (salvo cancelados) y cada renglón de venta es de un producto **o** de un servicio.
+
 ## Tareas
 Orden pensado para aprender LangGraph primero y dejar Docker para después.
 
