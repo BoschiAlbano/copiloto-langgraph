@@ -1,6 +1,6 @@
 # Fase 1: Entorno y primer grafo
 
-Estado: **aprobada, en implementación**
+Estado: **terminada** (etiqueta `fase-01`)
 
 ## Objetivo
 Tener el entorno listo y un primer grafo de un solo nodo que conversa con Claude por terminal, más la base de datos del negocio levantada con su seed.
@@ -27,15 +27,15 @@ Estado del entorno detectado (2026-10-27):
 - R9: `ANTHROPIC_API_KEY` y las cadenas de conexión viven en `.env`; solo `.env.example` se versiona. El arranque falla con mensaje claro si falta una variable.
 
 ## Criterios de aceptación
-- [ ] CA1: dado `.env` con la clave, cuando corro `npm run chat` y escribo un mensaje, entonces Claude responde.
-- [ ] CA2: dado que le dije mi nombre en el primer mensaje, cuando pregunto "¿cómo me llamo?" en el segundo, entonces responde bien (el historial viene del estado del grafo).
-- [ ] CA3: dado Supabase corriendo, cuando corro `npm run db:reset`, entonces se recrean las tablas del negocio en `public` (sin tocar otros esquemas) y corre el seed.
-- [ ] CA4: dado el seed cargado, entonces las filas por tabla son: `clients` = 30, `staff` = 3, `services` = 4, `products` = 15, y `appointments`, `sales` y `sale_items` tienen datos de ~90 días (rangos exactos fijados en T5).
-- [ ] CA5: dado el seed, entonces ningún barbero tiene turnos superpuestos, cada `sales.total` es igual a la suma de sus `sale_items` y ningún `products.stock` es negativo.
-- [ ] CA6: dado un intento de insertar un turno que se superpone con otro del mismo barbero, entonces la base lo rechaza.
-- [ ] CA7: dado `.env` fuera de git (`git check-ignore .env`), entonces `.env` no se versiona y `.env.example` sí.
-- [ ] CA8: dado que falta `ANTHROPIC_API_KEY`, cuando arranco `npm run chat`, entonces falla con un mensaje que nombra la variable faltante.
-- [ ] CA9: `npm test` pasa (CA4, CA5 y CA6 automatizados con Vitest; el grafo con un modelo falso).
+- [x] CA1: dado `.env` con la clave, cuando corro `npm run chat` y escribo un mensaje, entonces Claude responde.
+- [x] CA2: dado que le dije mi nombre en el primer mensaje, cuando pregunto "¿cómo me llamo?" en el segundo, entonces responde bien (el historial viene del estado del grafo).
+- [x] CA3: dado Supabase corriendo, cuando corro `npm run db:reset`, entonces se recrean las tablas del negocio en `public` (sin tocar otros esquemas) y corre el seed.
+- [x] CA4: dado el seed cargado, entonces las filas por tabla son: `clients` = 30, `staff` = 3, `services` = 4, `products` = 15, y `appointments`, `sales` y `sale_items` tienen datos de ~90 días (rangos exactos fijados en T5).
+- [x] CA5: dado el seed, entonces ningún barbero tiene turnos superpuestos, cada `sales.total` es igual a la suma de sus `sale_items` y ningún `products.stock` es negativo.
+- [x] CA6: dado un intento de insertar un turno que se superpone con otro del mismo barbero, entonces la base lo rechaza.
+- [x] CA7: dado `.env` fuera de git (`git check-ignore .env`), entonces `.env` no se versiona y `.env.example` sí.
+- [x] CA8: dado que falta `ANTHROPIC_API_KEY`, cuando arranco `npm run chat`, entonces falla con un mensaje que nombra la variable faltante.
+- [x] CA9: `npm test` pasa (CA4, CA5 y CA6 automatizados con Vitest; el grafo con un modelo falso).
 
 ## Fuera de alcance
 - Roles de base de datos de lectura y escritura (fase 2).
@@ -85,9 +85,23 @@ Orden pensado para aprender LangGraph primero y dejar Docker para después.
 - [x] T2: validación de entorno (`src/config/env.ts`). *Verif.:* CA8.
 - [x] T3: estado, nodo `chat` y grafo compilado, con test usando un modelo falso. *Verif.:* test del grafo en verde.
 - [x] T4: conversación por terminal (`npm run chat`). *Verif.:* CA1 y CA2 a mano.
-- [ ] T5: esquema y constraint de no superposición en el Supabase local. *Verif.:* CA3 y CA6.
-- [ ] T6: seed determinístico y tests de conteos y coherencia. *Verif.:* CA4, CA5 y CA9.
-- [ ] T7: README con los comandos en PowerShell, nota "qué aprendí", commit y etiqueta `fase-01`.
+- [x] T5: esquema y constraint de no superposición en el Supabase local. *Verif.:* CA3 y CA6.
+- [x] T6: seed determinístico y tests de conteos y coherencia. *Verif.:* CA4, CA5 y CA9.
+- [x] T7: README con los comandos en PowerShell, nota "qué aprendí", commit y etiqueta `fase-01`.
+
+## Decisiones tomadas durante la fase
+- **Prisma 7.10.1** y no la 8: `prisma@latest` es todavía un release candidate (8.0.0-rc.28) y `@prisma/client` estable sigue en 7.x. Se revisa más adelante.
+- **Montos en pesos enteros** (`Int`), sin centavos: simplifica sumas, reportes y las herramientas de fases siguientes.
+- **Esquema por migración SQL** generada con `prisma migrate diff` y completada a mano con lo que Prisma no expresa: exclusion constraint de turnos (los cancelados no ocupan horario), CHECKs de integridad y RLS activado en las 8 tablas (Supabase expone `public` por su API REST).
+- **`db:reset`** borra solo las tablas del negocio, no el esquema `public`.
+- **Seed anclado a la fecha de ejecución**: las cantidades de turnos, ventas y renglones varían según el día; las fijas (30/3/4/15) no. Hoy: 2021 turnos, 1567 ventas, 2069 renglones.
+- El seed incluye un cliente con una nota que simula una inyección de instrucciones, para las pruebas de las fases 2 y 5.
+- Para la fase 2: los roles de lectura y escritura tendrán que contemplar RLS (políticas o `BYPASSRLS`), porque hoy las tablas tienen RLS activo sin políticas.
 
 ## Qué aprendí
-*(se completa al cerrar la fase)*
+- **`StateGraph` + estado.** El estado es un esquema (`StateSchema`); cada campo puede tener un reducer. `MessagesValue` agrega mensajes en vez de reemplazarlos.
+- **Nodo.** Es una función `(estado) → actualización parcial`. Devuelve solo lo nuevo (`{ messages: [respuesta] }`) y LangGraph lo combina con el estado.
+- **`START` / `END` y `compile()`.** Las aristas definen el recorrido; compilar produce un objeto que se invoca con `graph.invoke(...)`.
+- **Sin checkpointer el grafo no recuerda nada entre invocaciones.** El historial lo devuelve el grafo y la terminal se lo vuelve a pasar. En la fase 4 eso lo reemplaza el checkpointer.
+- **Inyección de dependencias para probar.** El nodo recibe el modelo como parámetro, así los tests usan uno falso sin gastar API.
+- Dudas abiertas: cuándo conviene `MessagesDeltaValue` (experimental) en hilos largos; cómo se verá una traza de este grafo (fase 11).

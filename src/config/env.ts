@@ -20,8 +20,13 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
   return result.data;
 }
 
+/** Carga .env en process.env si el archivo existe. */
+export function loadEnvFile() {
+  if (existsSync(".env")) process.loadEnvFile(".env");
+}
+
 /** Carga .env (si existe) y devuelve las variables validadas. */
 export function loadEnv(): Env {
-  if (existsSync(".env")) process.loadEnvFile(".env");
+  loadEnvFile();
   return parseEnv(process.env);
 }

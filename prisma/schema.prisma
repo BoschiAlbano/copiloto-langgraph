@@ -1,0 +1,138 @@
+// Montos en pesos argentinos enteros (sin centavos): simplifica sumas y reportes.
+
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/db/generated"
+}
+
+enum AppointmentStatus {
+  scheduled
+  done
+  cancelled
+  no_show
+}
+
+enum PaymentMethod {
+  cash
+  card
+  transfer
+}
+
+model Client {
+  id        Int      @id @default(autoincrement())
+  name      String
+  phone     String?
+  email     String?
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  appointments Appointment[]
+  sales        Sale[]
+
+  @@map("clients")
+}
+
+model Staff {
+  id     Int     @id @default(autoincrement())
+  name   String
+  active Boolean @default(true)
+
+  appointments Appointment[]
+
+  @@map("staff")
+}
+
+model Service {
+  id          Int    @id @default(autoincrement())
+  name        String
+  durationMin Int    @map("duration_min")
+  price       Int
+
+  appointments Appointment[]
+  saleItems    SaleItem[]
+
+  @@map("services")
+}
+
+model Appointment {
+  id        Int               @id @default(autoincrement())
+  clientId  Int               @map("client_id")
+  staffId   Int               @map("staff_id")
+  serviceId Int               @map("service_id")
+  startsAt  DateTime          @map("starts_at") @db.Timestamptz(6)
+  endsAt    DateTime          @map("ends_at") @db.Timestamptz(6)
+  status    AppointmentStatus @default(scheduled)
+
+  client  Client  @relation(fields: [clientId], references: [id])
+  staff   Staff   @relation(fields: [staffId], references: [id])
+  service Service @relation(fields: [serviceId], references: [id])
+
+  @@index([startsAt])
+  @@index([clientId])
+  @@index([staffId, startsAt])
+  @@index([serviceId])
+  @@map("appointments")
+}
+
+model Product {
+  id       Int    @id @default(autoincrement())
+  name     String
+  sku      String @unique
+  price    Int
+  stock    Int
+  minStock Int    @map("min_stock")
+
+  saleItems SaleItem[]
+
+  @@map("products")
+}
+
+model Sale {
+  id            Int           @id @default(autoincrement())
+  clientId      Int?          @map("client_id")
+  total         Int
+  paymentMethod PaymentMethod @map("payment_method")
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  client Client?    @relation(fields: [clientId], references: [id])
+  items  SaleItem[]
+
+  @@index([createdAt])
+  @@index([clientId])
+  @@map("sales")
+}
+
+// Cada renglón es de un producto o de un servicio (nunca ambos): lo garantiza un CHECK en la migración.
+model SaleItem {
+  id        Int  @id @default(autoincrement())
+  saleId    Int  @map("sale_id")
+  productId Int? @map("product_id")
+  serviceId Int? @map("service_id")
+  qty       Int
+  unitPrice Int  @map("unit_price")
+
+  sale    Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: Restrict)
+  service Service? @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+
+  @@index([saleId])
+  @@index([productId])
+  @@index([serviceId])
+  @@map("sale_items")
+}
+
+model ActionLog {
+  id        Int       @id @default(autoincrement())
+  threadId  String    @map("thread_id")
+  action    String
+  payload   Json
+  decision  String?
+  decidedAt DateTime? @map("decided_at") @db.Timestamptz(6)
+
+  @@index([threadId])
+  @@map("action_log")
+}
