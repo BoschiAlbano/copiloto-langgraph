@@ -2,6 +2,7 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import type { Db } from "../db/client.js";
 import { Prisma } from "../db/generated/client.js";
+import { ACCENTS_FROM, ACCENTS_TO, normalize } from "./text.js";
 
 export const MAX_CLIENTS = 10;
 
@@ -13,12 +14,6 @@ export const findClientInput = z.strictObject({
     .max(80)
     .describe("Parte del nombre, del teléfono o del email del cliente"),
 });
-
-// Minúsculas y sin acentos, con funciones nativas de Postgres: "gimenez" encuentra "Giménez".
-const ACCENTS_FROM = "áéíóúüñ";
-const ACCENTS_TO = "aeiouun";
-const normalize = (value: string) =>
-  [...value.toLowerCase()].map((c) => ACCENTS_TO[ACCENTS_FROM.indexOf(c)] ?? c).join("");
 
 /** Escapa los comodines de LIKE para que "%" o "_" se busquen como texto. */
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`);
