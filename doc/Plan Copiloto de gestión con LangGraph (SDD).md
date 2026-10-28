@@ -87,7 +87,7 @@ Todo el proyecto va en TypeScript y se apoya en tu stack habitual, sumando LangG
 | Tests | Vitest | Nodos, herramientas y criterios de aceptación |
 | Entorno | Windows, PowerShell, Docker Desktop (WSL2) | Desarrollo local |
 
-**Versiones.** En la fase 1 se fijan versiones exactas en `package.json`; LangGraph se actualiza seguido (la serie Python iba por la 1.2.x en octubre de 2026). Los nombres exactos de los paquetes de checkpointer y Store para JS se confirman en la fase 4 contra la [documentación oficial de LangGraph](https://docs.langchain.com/oss/javascript/learn).
+**Versiones.** En la fase 1 se fijan versiones exactas en `package.json`; LangGraph se actualiza seguido (la serie Python iba por la 1.2.x en octubre de 2026). Confirmado en la fase 4 (leyendo el paquete publicado): checkpointer y Store para JS viven en el mismo paquete, `@langchain/langgraph-checkpoint-postgres` (1.1.2), con las clases `PostgresSaver` y `PostgresStore`; el Store se usa recién en la fase 8. Más detalle en la [documentación oficial de LangGraph](https://docs.langchain.com/oss/javascript/learn).
 
 **Referencia de la versión TypeScript:** [guía de LangGraph en TypeScript](https://codehalwell.github.io/AgentGuides/langgraph-guide/typescript/).
 
@@ -114,7 +114,7 @@ El negocio de ejemplo necesita siete tablas propias más una de auditoría; las 
 | `sale_items` | id, sale\_id, product\_id o service\_id, qty, unit\_price | Detalle de cada venta |
 | `action_log` | id, thread\_id, action, payload, decision, decided\_at | Auditoría: qué propuso el agente y qué decidió la persona |
 
-**Tablas de LangGraph.** El checkpointer (estado por hilo de conversación) y el Store (memoria de largo plazo) crean sus propias tablas en el mismo Postgres; no se tocan a mano.
+**Tablas de LangGraph.** El checkpointer (estado por hilo de conversación) y el Store (memoria de largo plazo) crean sus propias tablas en el mismo Postgres; no se tocan a mano. Las del checkpointer viven en un esquema aparte, `langgraph`, y la aplicación entra con un rol propio (`copilot_checkpointer`) que solo lee y escribe datos ahí (fase 4).
 
 **Datos de prueba.** Un script de seed genera unos 90 días de historial: turnos, ventas y movimientos de stock coherentes entre sí, para que los reportes tengan sentido.
 

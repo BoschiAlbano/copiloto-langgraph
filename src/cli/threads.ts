@@ -27,7 +27,7 @@ try {
     else {
       console.log(`Hilos recientes (${threads.length}), del más nuevo al más viejo:\n`);
       for (const t of threads) console.log(`  ${describeThread(t)}`);
-      console.log("\nRetomar uno: npm run chat -- --thread <id>");
+      console.log("\nRetomar uno: npm run chat <id>");
     }
   } else if (command === "history" || command === "delete") {
     if (!rawId) throw new Error(`Falta el id del hilo. ${USAGE}`);

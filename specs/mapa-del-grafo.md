@@ -11,8 +11,11 @@ Convención de los diagramas: **línea continua** = arista fija (siempre ocurre)
 | 1 | 1 (`chat`) | 2 | 0 | 2 | `messages` | Primer grafo: un nodo que llama a Claude |
 | 2 | 2 (`agent`, `tools`) | 2 | 2 | 4 | `messages` | Herramientas de lectura y el ciclo `agent ↔ tools` |
 | 3 | 7 (`router`, `agent`, `tools`, `chat`, `action_stub`, `report_stub`, `clarify`) | 6 | 7 | 13 | `messages`, `intent`, `intentReason` | Router de intención y cinco ramas |
+| 4 | 7 (los mismos) | 6 | 7 | 13 | `messages`, `intent`, `intentReason` | Checkpointer de Postgres: el estado se guarda por `thread_id` (cambia cómo se compila, no la forma del grafo) |
 
 Qué cambió de la fase 1 a la 2: el nodo `chat` pasó a llamarse `agent` y ahora puede pedir herramientas; apareció el nodo `tools`; la arista `chat → END` se volvió condicional (`agent → END` solo si no hay llamadas pendientes) y se sumó `tools → agent`, que cierra el ciclo.
+
+Qué cambió de la fase 3 a la 4: nada en nodos ni aristas. El grafo se compila con un checkpointer; por eso la terminal ya no guarda el historial y el estado sobrevive al cierre del programa.
 
 Qué cambió de la fase 2 a la 3: el grafo ya no arranca en `agent` sino en un nuevo nodo `router`, que decide a cuál de cinco ramas ir. El ciclo `agent ↔ tools` quedó intacto como una de esas ramas (`query`). Volvió un nodo `chat` (el de la fase 1, ahora sin herramientas y con otro prompt) y aparecieron `clarify` y dos marcadores (`action_stub`, `report_stub`).
 
@@ -139,11 +142,52 @@ El tope `recursionLimit` subió a 12 porque el router suma un paso: caben 4 rond
 
 ---
 
+## Fase 4: el grafo recuerda por hilo (`fase-04`)
+
+```mermaid
+flowchart TD
+    S((START)) -->|"fija"| R["router"]
+    R -.->|"query"| A["agent"]
+    R -.->|"chat"| C["chat"]
+    R -.->|"action"| AS["action_stub"]
+    R -.->|"report"| RS["report_stub"]
+    R -.->|"unclear"| CL["clarify"]
+    A -.->|"pidió herramientas"| T["tools"]
+    T -->|"resultados"| A
+    A -.->|"respuesta final"| E((END))
+    C --> E
+    AS --> E
+    RS --> E
+    CL --> E
+    DB[("Postgres · esquema langgraph<br/>checkpoints por thread_id")]
+    S -. "lee el último checkpoint del hilo" .-> DB
+    R & A & T & C & AS & RS & CL -. "guardan un checkpoint al terminar cada paso" .-> DB
+```
+
+**Resumen:** el grafo no cambió: mismos 7 nodos propios, 6 aristas fijas y 7 condicionales (13 conexiones) y mismos campos de estado. Lo que cambió es cómo se compila: `compile({ checkpointer })` con un `PostgresSaver`. No es un nodo ni una arista: es una capa por debajo que guarda el estado después de cada paso y lo carga al arrancar.
+
+| Qué | Antes (fases 1 a 3) | Ahora |
+| --- | --- | --- |
+| Quién guarda el historial | La terminal, en una variable | Postgres (`langgraph.checkpoints`), por `thread_id` |
+| Qué se manda al invocar | Todo el historial más el mensaje nuevo | Solo el mensaje nuevo y el `thread_id`; el reducer de `messages` lo **agrega** al estado guardado |
+| Al cerrar el programa | Se pierde la conversación | Se retoma con `npm run chat <id>` |
+| Si un turno se corta | Se descarta (el historial no se actualizaba) | El hilo queda a medias (`next` no vacío) y se reanuda con `/continuar` (`invoke(null)`) |
+
+**Checkpoints por turno** (cada uno es un paso del grafo más uno de entrada, `source: input`):
+
+| Situación | Camino | Checkpoints que deja |
+| --- | --- | --- |
+| Charla, acción, reporte o aclaración | `__start__ → router → rama` | 4 |
+| Una consulta con una herramienta | `__start__ → router → agent → tools → agent` | 6 |
+
+`metadata.writes` viene vacío en LangGraph.js 1.5.3, así que "qué nodo corrió" se deduce de los `next` del checkpoint anterior (ver `specs/fase-04-persistencia.md`).
+
+---
+
 ## Próximas fases (planeado, aún no existe)
 
 | Fase | Cambio previsto en el grafo |
 | --- | --- |
-| 4 | Sin cambios en nodos ni aristas: se compila con un checkpointer y el grafo recuerda por `thread_id` |
 | 5 | Nodos para proponer la acción y esperar la aprobación humana (`interrupt`), más las herramientas de escritura |
 | 6 | Reportes en paralelo con `Send` (varios nodos a la vez que se juntan en uno) |
 | 7 | Los caminos pasan a ser subgrafos coordinados por un supervisor |

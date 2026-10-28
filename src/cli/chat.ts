@@ -17,13 +17,18 @@ try {
 }
 
 // npm run chat                       → hilo nuevo
-// npm run chat -- --thread <id>      → retoma ese hilo (si no existe, lo crea)
+// npm run chat <id>                  → retoma ese hilo (si no existe, lo crea)
+// npm run chat -- --thread <id>      → lo mismo; en PowerShell 5.1 el `--` lo come el shell y npm se queda con la
+//                                      opción, por eso también se acepta el id suelto.
 function requestedThread(argv: string[]): string | undefined {
   const at = argv.indexOf("--thread");
-  if (at === -1) return undefined;
-  const value = argv[at + 1];
-  if (!value) throw new Error("Falta el id después de --thread.");
-  return parseThreadId(value);
+  if (at !== -1) {
+    const value = argv[at + 1];
+    if (!value) throw new Error("Falta el id después de --thread.");
+    return parseThreadId(value);
+  }
+  const bare = argv.find((a) => !a.startsWith("-"));
+  return bare ? parseThreadId(bare) : undefined;
 }
 
 let threadId: string;
@@ -35,7 +40,6 @@ try {
 }
 
 const agent = createAgent(env);
-const rl = createInterface({ input: process.stdin, output: process.stdout });
 const dim = (text: string) => `\x1b[2m${text}\x1b[0m`;
 const clip = (text: string, max = 200) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
 
@@ -57,7 +61,7 @@ try {
     console.log("");
   } else {
     console.log(`Hilo nuevo: ${threadId}`);
-    console.log(dim(`  Para retomarlo más tarde: npm run chat -- --thread ${threadId}\n`));
+    console.log(dim(`  Para retomarlo más tarde: npm run chat ${threadId}\n`));
   }
   if (pending) {
     console.log(`⚠ El turno anterior de este hilo quedó a medias (falta: ${status.next.join(", ")}).`);
@@ -100,6 +104,9 @@ async function attempt(run: () => Promise<TurnResult>) {
   if (pending) console.error('El turno quedó a medias. Escribí "/continuar" para reintentarlo desde donde se cortó.\n');
 }
 
+// La entrada se abre recién ahora, después de leer el hilo: si se hubiera abierto antes, las líneas
+// que llegan mientras se espera a la base (entrada por tubería) se perderían sin oyente.
+const rl = createInterface({ input: process.stdin, output: process.stdout });
 let closed = false;
 rl.on("close", () => (closed = true));
 rl.setPrompt("Vos: ");
@@ -122,5 +129,5 @@ for await (const line of rl) {
 }
 
 rl.close();
-console.log(dim(`\nHilo guardado: npm run chat -- --thread ${threadId}`));
+console.log(dim(`\nHilo guardado: npm run chat ${threadId}`));
 await agent.close();
