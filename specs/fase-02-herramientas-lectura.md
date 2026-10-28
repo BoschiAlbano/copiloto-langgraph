@@ -159,12 +159,12 @@ sequenceDiagram
 
 ## Tareas
 - [x] T1: migración `0002_reader_role`, script `db:roles`, `db:reset` actualizado y contraseña propia en `DATABASE_URL_READ`. *Verif.:* CA4.
-- [ ] T2: utilidades de fecha y zona horaria. *Verif.:* tests con casos de borde (medianoche, fin de mes).
-- [ ] T3: `findClient`. *Verif.:* CA5 y el caso de texto tipo SQL de CA3.
-- [ ] T4: `listAppointments`. *Verif.:* CA5 con el total de mañana contrastado con SQL.
-- [ ] T5: `getStockLevels` y `getSalesSummary`. *Verif.:* CA5.
-- [ ] T6: nodo `agent`, `ToolNode`, arista condicional y prompt nuevo, con modelo falso guionado. *Verif.:* CA6 y plomería de CA2.
-- [ ] T7: terminal con herramientas, tokens, costo y `recursionLimit`. *Verif.:* CA7 y CA9 (parte de la terminal).
+- [x] T2: utilidades de fecha y zona horaria. *Verif.:* tests con casos de borde (medianoche, fin de mes).
+- [x] T3: `findClient`. *Verif.:* CA5 y el caso de texto tipo SQL de CA3.
+- [x] T4: `listAppointments`. *Verif.:* CA5 con el total de mañana contrastado con SQL.
+- [x] T5: `getStockLevels` y `getSalesSummary`. *Verif.:* CA5.
+- [x] T6: nodo `agent`, `ToolNode`, arista condicional y prompt nuevo, con modelo falso guionado. *Verif.:* CA6 y plomería de CA2.
+- [x] T7: terminal con herramientas, tokens, costo y `recursionLimit`. *Verif.:* CA7 y CA9 (parte de la terminal).
 - [ ] T8: pruebas con el modelo real (CA1, CA2, CA8), batería de costo, ajuste del presupuesto del plan, README y etiqueta `fase-02`. *Verif.:* CA1, CA2, CA8, CA9 y CA10.
 
 ## Conversaciones de prueba
