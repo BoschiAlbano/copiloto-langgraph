@@ -24,6 +24,11 @@ describe("parseEnv", () => {
     expect(parseEnv(valid).MODEL_AGENT).toBe("claude-haiku-5-5");
   });
 
+  it("usa Haiku 5.5 como modelo del router por defecto y respeta MODEL_ROUTER", () => {
+    expect(parseEnv(valid).MODEL_ROUTER).toBe("claude-haiku-5-5");
+    expect(parseEnv({ ...valid, MODEL_ROUTER: "claude-sonnet-5-5" }).MODEL_ROUTER).toBe("claude-sonnet-5-5");
+  });
+
   it("respeta MODEL_AGENT si está definido", () => {
     expect(parseEnv({ ...valid, MODEL_AGENT: "claude-sonnet-5-5" }).MODEL_AGENT).toBe("claude-sonnet-5-5");
   });

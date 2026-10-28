@@ -1,6 +1,6 @@
 # Fase 3: Router de intención
 
-Estado: **borrador, pendiente de aprobación**
+Estado: **aprobada, en implementación**
 
 ## Objetivo
 Clasificar cada pedido con un modelo barato y derivarlo al camino correcto: consulta, acción, reporte, charla, o una aclaración cuando no se entiende qué se pide.

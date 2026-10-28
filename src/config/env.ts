@@ -4,6 +4,8 @@ import { z } from "zod";
 const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().min(1),
   MODEL_AGENT: z.string().min(1).default("claude-haiku-5-5"),
+  // El router corre en cada turno: conviene un modelo barato.
+  MODEL_ROUTER: z.string().min(1).default("claude-haiku-5-5"),
   // Rol de solo lectura (copilot_reader): lo usan las herramientas del agente.
   DATABASE_URL_READ: z.string().min(1),
 });
