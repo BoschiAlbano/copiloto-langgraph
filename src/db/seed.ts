@@ -1,6 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { loadEnvFile } from "../config/env.js";
-import { createPrisma, type Prisma } from "./client.js";
+import { createPrisma, type Db } from "./client.js";
 import { generateSeed, type SeedData } from "./seed-generator.js";
 
 const TABLES = ["clients", "staff", "services", "appointments", "products", "sales", "sale_items", "action_log"];
@@ -10,7 +10,7 @@ async function insertInChunks<T>(rows: T[], insert: (chunk: T[]) => Promise<unkn
 }
 
 /** Vacía las tablas del negocio y las vuelve a llenar. Es idempotente. */
-export async function seedDatabase(prisma: Prisma, data: SeedData = generateSeed(new Date())) {
+export async function seedDatabase(prisma: Db, data: SeedData = generateSeed(new Date())) {
   await prisma.$executeRawUnsafe(
     `TRUNCATE ${TABLES.map((t) => `"${t}"`).join(", ")} RESTART IDENTITY CASCADE`,
   );

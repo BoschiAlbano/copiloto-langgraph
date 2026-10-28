@@ -6,4 +6,4 @@ export function createPrisma(connectionString: string) {
   return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
 }
 
-export type Prisma = ReturnType<typeof createPrisma>;
+export type Db = ReturnType<typeof createPrisma>;
