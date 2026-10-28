@@ -27,7 +27,7 @@ Cada fase sigue el mismo ciclo: la especificación se escribe y se aprueba antes
 3. **Tareas:** lista corta de pasos chicos, cada uno con su verificación.
 4. **Implementación con IA:** una tarea por vez, con la spec y el plan como contexto.
 5. **Verificación:** se corren los criterios de aceptación (tests, evals o una prueba manual descrita en la spec).
-6. **Cierre:** se actualiza la spec con lo aprendido y se marca la fase como terminada.
+6. **Cierre:** se actualiza la spec con lo aprendido, se agrega el diagrama de la fase a `specs/mapa-del-grafo.md` y se marca la fase como terminada.
 
 **Reglas del proceso**
 
