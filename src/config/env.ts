@@ -8,6 +8,8 @@ const envSchema = z.object({
   MODEL_ROUTER: z.string().min(1).default("claude-haiku-5-5"),
   // Rol de solo lectura (copilot_reader): lo usan las herramientas del agente.
   DATABASE_URL_READ: z.string().min(1),
+  // Rol copilot_checkpointer: guarda y lee los hilos de conversación, nada más.
+  DATABASE_URL_CHECKPOINTS: z.string().min(1),
 });
 
 export type Env = z.infer<typeof envSchema>;

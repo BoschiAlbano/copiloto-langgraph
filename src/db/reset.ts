@@ -8,6 +8,8 @@ const DROP_SQL = `
   DROP TABLE IF EXISTS "sale_items", "sales", "appointments", "action_log",
                        "products", "services", "staff", "clients", "_prisma_migrations" CASCADE;
   DROP TYPE IF EXISTS "AppointmentStatus", "PaymentMethod";
+  -- Los hilos guardados hablan de datos del seed, que cambian: se borran con ellos.
+  DROP SCHEMA IF EXISTS langgraph CASCADE;
 `;
 
 loadEnvFile();
@@ -28,4 +30,5 @@ try {
 
 execSync("npx prisma migrate deploy", { stdio: "inherit" });
 execSync("npx tsx src/db/roles.ts", { stdio: "inherit" });
+execSync("npx tsx src/db/checkpoints.ts", { stdio: "inherit" });
 execSync("npx tsx src/db/seed.ts", { stdio: "inherit" });
