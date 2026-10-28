@@ -2,6 +2,7 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import type { Db } from "../db/client.js";
 import { Prisma } from "../db/generated/client.js";
+import { safeTool } from "./safe.js";
 import { ACCENTS_FROM, ACCENTS_TO, normalize } from "./text.js";
 
 export const MAX_PRODUCTS = 50;
@@ -55,7 +56,7 @@ export async function getStockLevels(
 }
 
 export const makeGetStockLevelsTool = (db: Db) =>
-  tool(async (input) => JSON.stringify(await getStockLevels(db, input)), {
+  tool(safeTool("getStockLevels", (input: z.input<typeof getStockLevelsInput>) => getStockLevels(db, input)), {
     name: "getStockLevels",
     description:
       "Consulta el stock de productos. Un producto está 'bajo' (isLow) cuando su stock es menor que su mínimo. " +

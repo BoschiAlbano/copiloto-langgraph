@@ -10,6 +10,7 @@
     "chat": "tsx src/cli/chat.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "bench": "tsx src/cli/bench.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:roles": "tsx src/db/roles.ts",

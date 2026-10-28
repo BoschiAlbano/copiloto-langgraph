@@ -2,6 +2,7 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import type { Db } from "../db/client.js";
 import { daysInRange, localDateSchema, localDayRangeUtc } from "./dates.js";
+import { safeTool } from "./safe.js";
 
 export const MAX_RANGE_DAYS = 92;
 
@@ -53,7 +54,7 @@ export async function getSalesSummary(db: Db, input: z.input<typeof getSalesSumm
 }
 
 export const makeGetSalesSummaryTool = (db: Db) =>
-  tool(async (input) => JSON.stringify(await getSalesSummary(db, input)), {
+  tool(safeTool("getSalesSummary", (input: z.input<typeof getSalesSummaryInput>) => getSalesSummary(db, input)), {
     name: "getSalesSummary",
     description:
       "Resume las ventas entre dos fechas (hora de Argentina, ambas incluidas, hasta 92 días): cantidad de ventas, " +

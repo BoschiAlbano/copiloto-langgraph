@@ -2,6 +2,7 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import type { Db } from "../db/client.js";
 import { Prisma } from "../db/generated/client.js";
+import { safeTool } from "./safe.js";
 import { ACCENTS_FROM, ACCENTS_TO, normalize } from "./text.js";
 
 export const MAX_CLIENTS = 10;
@@ -57,7 +58,7 @@ export async function findClient(db: Db, input: z.input<typeof findClientInput>,
 }
 
 export const makeFindClientTool = (db: Db) =>
-  tool(async (input) => JSON.stringify(await findClient(db, input)), {
+  tool(safeTool("findClient", (input: z.input<typeof findClientInput>) => findClient(db, input)), {
     name: "findClient",
     description:
       "Busca clientes por nombre, teléfono o email (no distingue mayúsculas ni acentos). " +

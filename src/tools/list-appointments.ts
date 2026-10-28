@@ -2,6 +2,7 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import type { Db } from "../db/client.js";
 import { daysInRange, formatLocal, localDateSchema, localDayRangeUtc } from "./dates.js";
+import { safeTool, ToolUserError } from "./safe.js";
 import { normalize } from "./text.js";
 
 export const MAX_APPOINTMENTS = 50;
@@ -35,7 +36,7 @@ export async function listAppointments(
     const wanted = normalize(staffName);
     const matches = allStaff.filter((s) => normalize(s.name).includes(wanted));
     if (matches.length === 0) {
-      throw new Error(
+      throw new ToolUserError(
         `No hay ningún barbero que coincida con "${staffName}". Barberos: ${allStaff.map((s) => s.name).join(", ")}.`,
       );
     }
@@ -84,7 +85,7 @@ export async function listAppointments(
 }
 
 export const makeListAppointmentsTool = (db: Db) =>
-  tool(async (input) => JSON.stringify(await listAppointments(db, input)), {
+  tool(safeTool("listAppointments", (input: z.input<typeof listAppointmentsInput>) => listAppointments(db, input)), {
     name: "listAppointments",
     description:
       "Lista turnos entre dos fechas (hora de Argentina, ambas incluidas, hasta 31 días), ordenados por horario. " +
