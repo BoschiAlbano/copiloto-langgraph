@@ -23,7 +23,7 @@ Esta fase no necesita nada de tu parte: la clave de la API y el límite de gasto
   - `chat` → `chat`: Claude **sin herramientas enlazadas** y con su propio prompt corto.
   - `action` → `action_stub` y `report` → `report_stub`: marcadores con un mensaje fijo que explica que todavía no está disponible y en qué fase llega. No llaman a ningún modelo.
   - `unclear` → `clarify`: hace una pregunta breve para aclarar el pedido.
-- R4: El router ve **contexto acotado**: los últimos 6 mensajes de persona o de IA que tengan texto, de hasta 500 caracteres cada uno, más el mensaje nuevo. Nunca ve mensajes de herramientas. Sin contexto, "¿y pasado mañana?" no se podría clasificar.
+- R4: El router ve **contexto acotado**: los últimos 6 mensajes de persona o de IA que tengan texto (el mensaje nuevo incluido), de hasta 500 caracteres cada uno. Se le muestran como una transcripción de texto dentro de un solo mensaje (`[persona] …`, `[copiloto] …`), no como mensajes con roles: es material para clasificar, no una charla que continuar. Nunca ve mensajes de herramientas. Sin contexto, "¿y pasado mañana?" no se podría clasificar.
 - R5: Si la salida del router no cumple el esquema, se usa `query` (la rama de solo lectura, la más segura) y se avisa en la consola de quien opera. Un error real de la API (caída, clave inválida) **no** se tapa: se propaga a la terminal.
 - R6: Pedidos mixtos ("registrá la venta y decime el stock"): gana `action`, porque es la rama que va a exigir aprobación. Resolverlos bien es de la fase 7.
 - R7: El conteo de tokens y costo incluye **todas las llamadas al modelo** (router, aclaración, charla y agente) y se desglosa por modelo. Se hace con un callback de LangGraph, porque la salida estructurada no deja el uso en `messages`.
@@ -116,7 +116,7 @@ START → router ──(routeByIntent)──┬─ query   → agent ↔ tools �
 
 ```
 src/graph/intents.ts          valores de intent y esquema Zod de la salida del router
-src/graph/router-context.ts   contexto acotado para el router
+src/graph/router-context.ts   contexto acotado y transcripción para el router
 src/graph/nodes/router.ts     nodo router
 src/graph/nodes/chat.ts       charla sin herramientas
 src/graph/nodes/clarify.ts    pide una aclaración
