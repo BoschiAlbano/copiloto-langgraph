@@ -94,7 +94,7 @@ START → router ──(routeByIntent)──┬─ query   → agent ↔ tools �
 
 7 nodos propios (`router`, `agent`, `tools`, `chat`, `action_stub`, `report_stub`, `clarify`), 6 aristas fijas y 7 condicionales (5 salen del router y 2 del agente): 13 conexiones.
 
-**Estado:** `messages` más `intent`, declarado como `z.enum([...]).optional()`: sin reducer, el último valor gana. Se mantiene el plan (`messages` e `intent`) y no se agregan campos. La pregunta de aclaración la escribe el propio nodo `clarify`.
+**Estado:** `messages`, `intent` (declarado como `z.enum([...]).optional()`: sin reducer, el último valor gana) e `intentReason`, el motivo que escribió el router. `intentReason` no está en el plan: se agregó para mostrar la ruta en la terminal y, más adelante, para entender por qué se eligió una ruta al inspeccionar checkpoints. La pregunta de aclaración la escribe el propio nodo `clarify`, no viaja por el estado.
 
 **Router**
 - `model.withStructuredOutput(schema, { includeRaw: true })` sobre `ChatAnthropic` con `MODEL_ROUTER`. El esquema Zod pone `reason` antes que `intent` para que el modelo razone brevemente antes de decidir. A confirmar al implementar: la forma exacta de la API con Zod 4 en la versión instalada.

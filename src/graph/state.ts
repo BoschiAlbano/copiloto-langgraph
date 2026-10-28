@@ -8,6 +8,8 @@ import { INTENTS } from "./intents.js";
 export const AgentState = new StateSchema({
   messages: MessagesValue,
   intent: z.enum(INTENTS).optional(),
+  // Por qué el router eligió esa ruta: se muestra en la terminal y servirá al inspeccionar checkpoints.
+  intentReason: z.string().optional(),
 });
 
 export type AgentStateType = typeof AgentState.State;
