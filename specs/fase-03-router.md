@@ -171,12 +171,12 @@ flowchart LR
 ## Tareas
 Orden pensado para congelar la evaluación antes de escribir el prompt.
 
-- [ ] T1: `intents.ts` (valores y esquema), campo `intent` en el estado, `MODEL_ROUTER` en el entorno y `.env.example`. *Verif.:* tests del esquema y de `parseEnv`.
-- [ ] T2: `buildRouterContext`. *Verif.:* CA8.
-- [ ] T3: `evals/router-cases.ts` con los 30 casos de esta spec, congelados. *Verif.:* test de forma (5 por categoría, 6 ambiguos, 4 con historial).
-- [ ] T4: nodo `router` y primer borrador de `router.md`, con un modelo falso. *Verif.:* `state.intent` correcto, respaldo ante salida inválida y propagación de errores de la API (CA7).
-- [ ] T5: nodos `chat`, `clarify`, `action_stub` y `report_stub` con sus prompts y mensajes. *Verif.:* tests con modelos guionados.
-- [ ] T6: cableado del grafo con la arista de cinco ramas y tope de 12 pasos; los tests de la fase 2 se adaptan solo en la construcción. *Verif.:* CA4 (parte guionada), CA5, CA6, CA10 y CA11 (parte determinística).
+- [x] T1: `intents.ts` (valores y esquema), campo `intent` en el estado, `MODEL_ROUTER` en el entorno y `.env.example`. *Verif.:* tests del esquema y de `parseEnv`.
+- [x] T2: `buildRouterContext`. *Verif.:* CA8.
+- [x] T3: `evals/router-cases.ts` con los 30 casos de esta spec, congelados. *Verif.:* test de forma (5 por categoría, 6 ambiguos, 4 con historial).
+- [x] T4: nodo `router` y primer borrador de `router.md`, con un modelo falso. *Verif.:* `state.intent` correcto, respaldo ante salida inválida y propagación de errores de la API (CA7).
+- [x] T5: nodos `chat`, `clarify`, `action_stub` y `report_stub` con sus prompts y mensajes. *Verif.:* tests con modelos guionados.
+- [x] T6: cableado del grafo con la arista de cinco ramas y tope de 12 pasos; los tests de la fase 2 se adaptan solo en la construcción. *Verif.:* CA4 (parte guionada), CA5, CA6, CA10 y CA11 (parte determinística).
 - [ ] T7: `UsageTracker`, terminal con `[ruta]` y costo por modelo, y `bench` actualizado. *Verif.:* CA9.
 - [ ] T8: `evals/router.ts`, `npm run eval:router` y test con el modelo real; se ajusta el prompt hasta cumplir CA1 a CA3 y se anotan las iteraciones. *Verif.:* CA1, CA2, CA3 y la parte real de CA4.
 - [ ] T9: pruebas de punta a punta con el modelo real, `bench` con router, actualización del presupuesto del plan, README, `mapa-del-grafo.md` y etiqueta `fase-03`. *Verif.:* CA11 (parte real), CA12 y CA13.

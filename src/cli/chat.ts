@@ -2,7 +2,8 @@ import { createInterface } from "node:readline/promises";
 import type { BaseMessage } from "@langchain/core/messages";
 import { estimateCostUsd } from "../config/pricing.js";
 import { loadEnv } from "../config/env.js";
-import { AGENT_RECURSION_LIMIT, createAgent } from "../graph/create-agent.js";
+import { createAgent } from "../graph/create-agent.js";
+import { AGENT_RECURSION_LIMIT } from "../graph/limits.js";
 import { runTurn } from "../graph/run-turn.js";
 
 let env;

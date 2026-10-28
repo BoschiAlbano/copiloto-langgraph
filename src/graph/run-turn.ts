@@ -1,5 +1,6 @@
 import { HumanMessage, type BaseMessage } from "@langchain/core/messages";
-import { AGENT_RECURSION_LIMIT, type Agent } from "./create-agent.js";
+import type { Agent } from "./create-agent.js";
+import { AGENT_RECURSION_LIMIT } from "./limits.js";
 import { summarizeTurn, type TurnSummary } from "./usage.js";
 
 export interface TurnResult {

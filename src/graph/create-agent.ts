@@ -3,20 +3,30 @@ import type { Env } from "../config/env.js";
 import { createPrisma } from "../db/client.js";
 import { makeReadTools } from "../tools/index.js";
 import { buildGraph } from "./index.js";
-
-/**
- * Tope de pasos del grafo por conversación-turno (cada paso es un nodo ejecutado).
- * Un turno normal con herramientas usa 3: agent → tools → agent. La política completa
- * de reintentos y topes llega en la fase 10.
- */
-export const AGENT_RECURSION_LIMIT = 10;
+import { routerOutputSchema } from "./intents.js";
 
 export type Agent = ReturnType<typeof createAgent>;
 
-/** Arma el agente real: Claude + herramientas de lectura sobre la base con el rol copilot_reader. */
+/**
+ * Arma el copiloto real:
+ * - router y aclaración: modelo barato (MODEL_ROUTER); el router con salida estructurada, temperatura 0;
+ * - agente: MODEL_AGENT con herramientas de lectura sobre la base con el rol copilot_reader;
+ * - charla: MODEL_AGENT sin herramientas.
+ */
 export function createAgent(env: Env) {
   const db = createPrisma(env.DATABASE_URL_READ);
   const tools = makeReadTools(db);
-  const model = new ChatAnthropic({ model: env.MODEL_AGENT, apiKey: env.ANTHROPIC_API_KEY }).bindTools(tools);
-  return { graph: buildGraph({ model, tools }), close: () => db.$disconnect() };
+  const claude = (model: string, temperature?: number) =>
+    new ChatAnthropic({ model, apiKey: env.ANTHROPIC_API_KEY, ...(temperature !== undefined && { temperature }) });
+
+  const graph = buildGraph({
+    models: {
+      router: claude(env.MODEL_ROUTER, 0).withStructuredOutput(routerOutputSchema, { name: "route", includeRaw: true }),
+      agent: claude(env.MODEL_AGENT).bindTools(tools),
+      chat: claude(env.MODEL_AGENT),
+      clarify: claude(env.MODEL_ROUTER, 0),
+    },
+    tools,
+  });
+  return { graph, close: () => db.$disconnect() };
 }

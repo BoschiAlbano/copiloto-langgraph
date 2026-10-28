@@ -2,7 +2,7 @@ import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from "@langcha
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
-import { buildGraph } from "../src/graph/index.js";
+import { buildTestGraph } from "./helpers/graph.js";
 import type { AgentModel } from "../src/graph/nodes/agent.js";
 
 /** Modelo falso guionado: devuelve una respuesta por llamada y guarda lo que recibió. */
@@ -50,7 +50,7 @@ describe("ciclo agente ↔ herramientas", () => {
       call("c1", "countTurns", { day: "2026-10-28" }),
       new AIMessage("Mañana hay 7 turnos."),
     ]);
-    const result = await buildGraph({ model, tools }).invoke({ messages: [new HumanMessage("¿Cuántos turnos hay mañana?")] });
+    const result = await buildTestGraph({ model, tools }).invoke({ messages: [new HumanMessage("¿Cuántos turnos hay mañana?")] });
 
     expect(types(result.messages)).toEqual(["human", "ai", "tool", "ai"]);
     expect(result.messages.at(-1)?.text).toBe("Mañana hay 7 turnos.");
@@ -71,7 +71,7 @@ describe("ciclo agente ↔ herramientas", () => {
       ],
     });
     const { model, calls } = scriptedModel([both, new AIMessage("Listo.")]);
-    const result = await buildGraph({ model, tools }).invoke({ messages: [new HumanMessage("resumen")] });
+    const result = await buildTestGraph({ model, tools }).invoke({ messages: [new HumanMessage("resumen")] });
 
     expect(types(result.messages)).toEqual(["human", "ai", "tool", "tool", "ai"]);
     expect(calls[1]!.filter((m) => m.type === "tool").map((m) => (m as ToolMessage).tool_call_id)).toEqual(["a", "b"]);
@@ -83,13 +83,13 @@ describe("ciclo agente ↔ herramientas", () => {
       call("2", "countTurns", { day: "2026-10-28" }),
       new AIMessage("Hecho."),
     ]);
-    const result = await buildGraph({ model, tools }).invoke({ messages: [new HumanMessage("hola")] });
+    const result = await buildTestGraph({ model, tools }).invoke({ messages: [new HumanMessage("hola")] });
     expect(types(result.messages)).toEqual(["human", "ai", "tool", "ai", "tool", "ai"]);
   });
 
   it("si la respuesta no pide herramientas, el grafo termina sin pasar por tools", async () => {
     const { model, calls } = scriptedModel([new AIMessage("Hola.")]);
-    const result = await buildGraph({ model, tools }).invoke({ messages: [new HumanMessage("hola")] });
+    const result = await buildTestGraph({ model, tools }).invoke({ messages: [new HumanMessage("hola")] });
     expect(types(result.messages)).toEqual(["human", "ai"]);
     expect(calls).toHaveLength(1);
   });
@@ -101,7 +101,7 @@ describe("errores de herramientas", () => {
       call("x", "broken", {}),
       new AIMessage("No pude consultar los datos."),
     ]);
-    const result = await buildGraph({ model, tools }).invoke({ messages: [new HumanMessage("¿cuánto vendimos?")] });
+    const result = await buildTestGraph({ model, tools }).invoke({ messages: [new HumanMessage("¿cuánto vendimos?")] });
 
     const errorMsg = result.messages.find((m: BaseMessage) => m.type === "tool") as ToolMessage;
     expect(errorMsg.status).toBe("error");
@@ -116,14 +116,14 @@ describe("errores de herramientas", () => {
       call("y", "countTurns", { day: "2026-10-28", sql: "DROP TABLE clients" }),
       new AIMessage("Ok."),
     ]);
-    const result = await buildGraph({ model, tools }).invoke({ messages: [new HumanMessage("hola")] });
+    const result = await buildTestGraph({ model, tools }).invoke({ messages: [new HumanMessage("hola")] });
     const toolMsg = result.messages.find((m: BaseMessage) => m.type === "tool") as ToolMessage;
     expect(toolMsg.status).toBe("error");
   });
 
   it("una herramienta que no existe también vuelve como error", async () => {
     const { model } = scriptedModel([call("z", "runSql", { sql: "select 1" }), new AIMessage("Ok.")]);
-    const result = await buildGraph({ model, tools }).invoke({ messages: [new HumanMessage("hola")] });
+    const result = await buildTestGraph({ model, tools }).invoke({ messages: [new HumanMessage("hola")] });
     const toolMsg = result.messages.find((m: BaseMessage) => m.type === "tool") as ToolMessage;
     expect(toolMsg.status).toBe("error");
     expect(toolMsg.text).toMatch(/runSql/);
@@ -133,7 +133,7 @@ describe("errores de herramientas", () => {
 describe("tope de iteraciones", () => {
   it("corta con GraphRecursionError si el modelo pide herramientas sin parar", async () => {
     const { model, calls } = scriptedModel((n) => call(`loop${n}`, "getStock", {}));
-    const graph = buildGraph({ model, tools });
+    const graph = buildTestGraph({ model, tools });
 
     await expect(graph.invoke({ messages: [new HumanMessage("hola")] }, { recursionLimit: 6 })).rejects.toMatchObject({
       name: "GraphRecursionError",
@@ -146,7 +146,7 @@ describe("prompt del sistema", () => {
   it("lleva la fecha y hora de Argentina de cada llamada, sin dejar el marcador", async () => {
     const { model, calls } = scriptedModel([new AIMessage("ok")]);
     const now = () => new Date("2026-10-27T18:05:00Z");
-    await buildGraph({ model, tools, now }).invoke({ messages: [new HumanMessage("hola")] });
+    await buildTestGraph({ model, tools, now }).invoke({ messages: [new HumanMessage("hola")] });
 
     const system = calls[0]![0]!;
     expect(system.type).toBe("system");
@@ -156,7 +156,7 @@ describe("prompt del sistema", () => {
 
   it("no se guarda en el estado", async () => {
     const { model } = scriptedModel([new AIMessage("ok")]);
-    const result = await buildGraph({ model, tools }).invoke({ messages: [new HumanMessage("hola")] });
+    const result = await buildTestGraph({ model, tools }).invoke({ messages: [new HumanMessage("hola")] });
     expect(result.messages.some((m: BaseMessage) => m.type === "system")).toBe(false);
   });
 });
