@@ -346,7 +346,7 @@ La API Batch cobra la mitad en Sonnet 5.5 (1 y 5), útil para correr las evaluac
 
 | Pedido | Con Sonnet 5.5 | Con Haiku 5.5 |
 | --- | --- | --- |
-| Consulta típica | US$ 0,02 | US$ 0,001 |
+| Consulta típica (medido en la fase 2) | US$ 0,014 | US$ 0,0007 |
 | Acción con aprobación | US$ 0,03 | US$ 0,0015 |
 | Reporte en paralelo | US$ 0,08 | US$ 0,004 |
 | Set de evaluaciones (30 casos) | US$ 0,90 | US$ 0,05 |
@@ -362,7 +362,7 @@ La API Batch cobra la mitad en Sonnet 5.5 (1 y 5), útil para correr las evaluac
 
 **Notas**
 
-- Son estimaciones propias, no mediciones: en la fase 2 se mide el costo real por conversación y se ajusta este presupuesto.
+- Salvo la consulta típica, que se midió en la fase 2 (ver `specs/fase-02-herramientas-lectura.md`), son estimaciones propias, no mediciones. La medición dio un costo ~30 % menor que lo estimado; se vuelve a medir en las fases 3, 5 y 6, porque el router y las herramientas de escritura suman costo fijo por llamada.
 - Los precios salen de páginas que reproducen la documentación oficial; confirmalos en la consola antes de cargar crédito.
 - El gasto de la IA con la que programás (el desarrollo con SDD) es aparte y depende de la herramienta y el plan que uses.
 - Todo lo demás corre en local (Supabase, grafo y app web), así que la API de Claude es el único gasto del proyecto.
