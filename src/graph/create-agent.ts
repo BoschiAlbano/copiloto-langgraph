@@ -1,9 +1,8 @@
-import { ChatAnthropic } from "@langchain/anthropic";
 import type { Env } from "../config/env.js";
 import { createPrisma } from "../db/client.js";
 import { makeReadTools } from "../tools/index.js";
 import { buildGraph } from "./index.js";
-import { routerOutputSchema } from "./intents.js";
+import { claude, makeClarifyModel, makeRouterModel } from "./models.js";
 
 export type Agent = ReturnType<typeof createAgent>;
 
@@ -16,15 +15,13 @@ export type Agent = ReturnType<typeof createAgent>;
 export function createAgent(env: Env) {
   const db = createPrisma(env.DATABASE_URL_READ);
   const tools = makeReadTools(db);
-  // Sin `temperature`: Haiku 5.5 rechaza ese parámetro ("deprecated for this model").
-  const claude = (model: string) => new ChatAnthropic({ model, apiKey: env.ANTHROPIC_API_KEY });
 
   const graph = buildGraph({
     models: {
-      router: claude(env.MODEL_ROUTER).withStructuredOutput(routerOutputSchema, { name: "route", includeRaw: true }),
-      agent: claude(env.MODEL_AGENT).bindTools(tools),
-      chat: claude(env.MODEL_AGENT),
-      clarify: claude(env.MODEL_ROUTER),
+      router: makeRouterModel(env),
+      agent: claude(env, env.MODEL_AGENT).bindTools(tools),
+      chat: claude(env, env.MODEL_AGENT),
+      clarify: makeClarifyModel(env),
     },
     tools,
   });

@@ -177,8 +177,8 @@ Orden pensado para congelar la evaluación antes de escribir el prompt.
 - [x] T4: nodo `router` y primer borrador de `router.md`, con un modelo falso. *Verif.:* `state.intent` correcto, respaldo ante salida inválida y propagación de errores de la API (CA7).
 - [x] T5: nodos `chat`, `clarify`, `action_stub` y `report_stub` con sus prompts y mensajes. *Verif.:* tests con modelos guionados.
 - [x] T6: cableado del grafo con la arista de cinco ramas y tope de 12 pasos; los tests de la fase 2 se adaptan solo en la construcción. *Verif.:* CA4 (parte guionada), CA5, CA6, CA10 y CA11 (parte determinística).
-- [ ] T7: `UsageTracker`, terminal con `[ruta]` y costo por modelo, y `bench` actualizado. *Verif.:* CA9.
-- [ ] T8: `evals/router.ts`, `npm run eval:router` y test con el modelo real; se ajusta el prompt hasta cumplir CA1 a CA3 y se anotan las iteraciones. *Verif.:* CA1, CA2, CA3 y la parte real de CA4.
+- [x] T7: `UsageTracker`, terminal con `[ruta]` y costo por modelo, y `bench` actualizado. *Verif.:* CA9.
+- [x] T8: `evals/router.ts`, `npm run eval:router` y test con el modelo real; se ajusta el prompt hasta cumplir CA1 a CA3 y se anotan las iteraciones. *Verif.:* CA1, CA2, CA3 y la parte real de CA4.
 - [ ] T9: pruebas de punta a punta con el modelo real, `bench` con router, actualización del presupuesto del plan, README, `mapa-del-grafo.md` y etiqueta `fase-03`. *Verif.:* CA11 (parte real), CA12 y CA13.
 
 ## Iteraciones del prompt
