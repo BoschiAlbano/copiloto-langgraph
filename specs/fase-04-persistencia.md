@@ -119,7 +119,8 @@ Una tarea = un commit en la rama `dev/fase-04`.
 8. **T8:** pruebas con modelo real, mediciones (CA10), diagrama, README, plan y cierre con etiqueta `fase-04` (CA9, CA11).
 
 ## Decisiones tomadas durante la fase
-(se completa al implementar)
+- **`metadata.writes` viene vacío en LangGraph.js 1.5.3** (en la spec se asumía que mostraba qué nodo escribió cada paso). Se comprobó con un hilo real. Para la historia se deduce: los nodos que produjeron un checkpoint son los `next` del checkpoint anterior. Se muestra como "corrió". Cada turno guarda un checkpoint de entrada (`step -1`, `source: input`) y uno por paso; una consulta con una herramienta deja 6.
+- (se sigue completando al implementar)
 
 ## Qué aprendí
 (se completa al cerrar la fase)

@@ -1,4 +1,5 @@
 import type { StructuredToolInterface } from "@langchain/core/tools";
+import type { BaseCheckpointSaver } from "@langchain/langgraph";
 import { buildGraph } from "../../src/graph/index.js";
 import type { Intent } from "../../src/graph/intents.js";
 import type { AgentModel } from "../../src/graph/nodes/agent.js";
@@ -27,15 +28,18 @@ export function buildTestGraph({
   tools,
   intent = "query",
   now,
+  checkpointer,
 }: {
   model: AgentModel;
   tools: StructuredToolInterface[];
   intent?: Intent | Intent[];
   now?: () => Date;
+  checkpointer?: BaseCheckpointSaver;
 }) {
   return buildGraph({
     models: { router: fixedRouter(intent).model, agent: model, chat: model, clarify: model },
     tools,
     now,
+    checkpointer,
   });
 }

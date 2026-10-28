@@ -1,6 +1,6 @@
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
-import { END, START, StateGraph } from "@langchain/langgraph";
+import { END, START, StateGraph, type BaseCheckpointSaver } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import type { Intent } from "./intents.js";
 import { makeAgentNode, type AgentModel } from "./nodes/agent.js";
@@ -48,6 +48,8 @@ export interface BuildGraphOptions {
   now?: () => Date;
   /** Avisos de quien opera el sistema (por ejemplo, salida inválida del router). */
   warn?: (message: string) => void;
+  /** Guarda el estado después de cada paso, por thread_id. Sin él, el grafo no recuerda nada entre invocaciones. */
+  checkpointer?: BaseCheckpointSaver;
 }
 
 /**
@@ -57,7 +59,7 @@ export interface BuildGraphOptions {
  *                       ├─ report  → report_stub   → END
  *                       └─ unclear → clarify       → END
  */
-export function buildGraph({ models, tools, now, warn }: BuildGraphOptions) {
+export function buildGraph({ models, tools, now, warn, checkpointer }: BuildGraphOptions) {
   return (
     new StateGraph(AgentState)
       .addNode("router", makeRouterNode(models.router, { warn }))
@@ -76,6 +78,6 @@ export function buildGraph({ models, tools, now, warn }: BuildGraphOptions) {
       .addEdge("action_stub", END)
       .addEdge("report_stub", END)
       .addEdge("clarify", END)
-      .compile()
+      .compile({ checkpointer })
   );
 }

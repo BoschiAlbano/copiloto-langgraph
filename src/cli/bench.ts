@@ -1,11 +1,12 @@
-import type { BaseMessage } from "@langchain/core/messages";
 import { loadEnv } from "../config/env.js";
 import { createAgent } from "../graph/create-agent.js";
 import { runTurn } from "../graph/run-turn.js";
+import { newThreadId } from "../graph/thread-id.js";
+import { deleteThread } from "../graph/threads.js";
 import { costOfUsage, mergeUsage, totalUsage, type ModelUsage } from "../graph/usage-tracker.js";
 import { usd } from "./format.js";
 
-// Mide el costo real de una batería de preguntas típicas: cada caso es una conversación nueva.
+// Mide el costo real de una batería de preguntas típicas: cada caso es un hilo nuevo (se borra al terminar).
 // Uso: npm run bench   (modelos de .env; se pueden pisar con $env:MODEL_AGENT y $env:MODEL_ROUTER)
 interface Case {
   name: string;
@@ -43,21 +44,22 @@ const usageByGroup: Record<Case["group"], ModelUsage[]> = { base: [], extra: [] 
 const costByGroup: Record<Case["group"], number> = { base: 0, extra: 0 };
 
 for (const testCase of CASES) {
-  let history: BaseMessage[] = [];
+  const threadId = newThreadId();
   let usage: ModelUsage[] = [];
   const tools: string[] = [];
   const routes: string[] = [];
   let error = "";
   try {
     for (const text of testCase.turns) {
-      const turn = await runTurn(agent, history, text);
-      history = turn.messages;
+      const turn = await runTurn(agent, threadId, text);
       usage = mergeUsage(usage, turn.summary.usage);
       tools.push(...turn.summary.toolCalls.map((c) => c.name));
       if (turn.route.intent) routes.push(turn.route.intent);
     }
   } catch (e) {
     error = ` (ERROR: ${(e as Error).message})`;
+  } finally {
+    await deleteThread(agent.checkpointer, threadId); // la batería no deja hilos en la base
   }
   const total = totalUsage(usage);
   const cost = costOfUsage(usage) ?? 0;

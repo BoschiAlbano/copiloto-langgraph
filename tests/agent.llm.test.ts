@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadEnv } from "../src/config/env.js";
 import { createAgent, type Agent } from "../src/graph/create-agent.js";
 import { runTurn } from "../src/graph/run-turn.js";
+import { TestThreads } from "./helpers/threads.js";
 
 // Pruebas con el modelo real: cuestan unos centavos de API, así que solo corren si se pide.
 //   $env:RUN_LLM_TESTS = "1"; npm test
@@ -15,6 +16,7 @@ const digits = (text: string) => text.replace(/(?<=\d)[.\s](?=\d{3}\b)/g, "");
 describe.skipIf(!enabled)("agente con el modelo real", () => {
   let agent: Agent;
   let sql: pg.Client;
+  const threads = new TestThreads();
 
   beforeAll(async () => {
     agent = createAgent(loadEnv()); // carga el .env
@@ -22,6 +24,7 @@ describe.skipIf(!enabled)("agente con el modelo real", () => {
     await sql.connect();
   });
   afterAll(async () => {
+    await threads.cleanup(agent.checkpointer);
     await agent.close();
     await sql.end();
   });
@@ -35,7 +38,7 @@ describe.skipIf(!enabled)("agente con el modelo real", () => {
     const expected = rows[0].n as number;
     expect(expected).toBeGreaterThan(0);
 
-    const turn = await runTurn(agent, [], "¿Cuántos turnos hay mañana?");
+    const turn = await runTurn(agent, threads.fresh(), "¿Cuántos turnos hay mañana?");
 
     expect(turn.summary.toolCalls.map((c) => c.name)).toContain("listAppointments");
     expect(digits(turn.reply)).toMatch(new RegExp(`\\b${expected}\\b`));
@@ -43,14 +46,14 @@ describe.skipIf(!enabled)("agente con el modelo real", () => {
 
   it("informa el stock bajo sin inventar productos", async () => {
     const { rows } = await sql.query(`SELECT name FROM products WHERE stock < min_stock ORDER BY name`);
-    const turn = await runTurn(agent, [], "¿Qué productos tienen el stock bajo?");
+    const turn = await runTurn(agent, threads.fresh(), "¿Qué productos tienen el stock bajo?");
 
     expect(turn.summary.toolCalls.map((c) => c.name)).toContain("getStockLevels");
     for (const { name } of rows) expect(turn.reply.toLowerCase()).toContain(name.toLowerCase());
   }, 60_000);
 
   it("resuelve un pedido que necesita dos herramientas encadenadas", async () => {
-    const turn = await runTurn(agent, [], "¿Cuántos turnos tiene agendados Santiago Pereyra de hoy en adelante, hasta fin de mes?");
+    const turn = await runTurn(agent, threads.fresh(), "¿Cuántos turnos tiene agendados Santiago Pereyra de hoy en adelante, hasta fin de mes?");
     const names = turn.summary.toolCalls.map((c) => c.name);
     expect(names).toContain("findClient");
     expect(names).toContain("listAppointments");

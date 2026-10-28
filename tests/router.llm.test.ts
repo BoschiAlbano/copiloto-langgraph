@@ -5,6 +5,7 @@ import { loadEnv, type Env } from "../src/config/env.js";
 import { createAgent, type Agent } from "../src/graph/create-agent.js";
 import { makeClarifyModel, makeRouterModel } from "../src/graph/models.js";
 import { runTurn } from "../src/graph/run-turn.js";
+import { TestThreads } from "./helpers/threads.js";
 
 // Pruebas con el modelo real: cuestan centavos de API (Haiku), así que solo corren si se pide.
 //   $env:RUN_LLM_TESTS = "1"; npm test
@@ -26,21 +27,25 @@ describe.skipIf(!enabled)("router con el modelo real", () => {
 
   describe("camino completo con el copiloto real", () => {
     let agent: Agent;
+    const threads = new TestThreads();
     beforeAll(() => {
       agent = createAgent(env);
     });
-    afterAll(() => agent.close());
+    afterAll(async () => {
+      await threads.cleanup(agent.checkpointer);
+      await agent.close();
+    });
 
     it("CA4: las 5 frases de charla terminan sin llamar a ninguna herramienta", async () => {
       for (const c of ROUTER_CASES.filter((x) => x.expected === "chat" && x.set === "A")) {
-        const turn = await runTurn(agent, [], c.message);
+        const turn = await runTurn(agent, threads.fresh(), c.message);
         expect(turn.route.intent, c.message).toBe("chat");
         expect(turn.summary.toolCalls, c.message).toEqual([]);
       }
     }, 120_000);
 
     it("CA6: una acción recibe el marcador y no llama al agente ni a las herramientas", async () => {
-      const turn = await runTurn(agent, [], "Cancelá el turno de Facundo Sosa de hoy.");
+      const turn = await runTurn(agent, threads.fresh(), "Cancelá el turno de Facundo Sosa de hoy.");
       expect(turn.route.intent).toBe("action");
       expect(turn.reply).toContain("fase 5");
       expect(turn.summary.toolCalls).toEqual([]);
@@ -48,7 +53,7 @@ describe.skipIf(!enabled)("router con el modelo real", () => {
     }, 60_000);
 
     it("CA9: el uso incluye al router además del agente", async () => {
-      const turn = await runTurn(agent, [], "¿Cuántos turnos hay mañana?");
+      const turn = await runTurn(agent, threads.fresh(), "¿Cuántos turnos hay mañana?");
       expect(turn.route.intent).toBe("query");
       // router + agente (pide la herramienta) + agente (responde) = al menos 3 llamadas
       expect(turn.summary.modelCalls).toBeGreaterThanOrEqual(3);
