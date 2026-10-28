@@ -28,7 +28,7 @@ Esta fase no necesita nada de tu parte: la clave de la API y el límite de gasto
 - R6: Pedidos mixtos ("registrá la venta y decime el stock"): gana `action`, porque es la rama que va a exigir aprobación. Resolverlos bien es de la fase 7.
 - R7: El conteo de tokens y costo incluye **todas las llamadas al modelo** (router, aclaración, charla y agente) y se desglosa por modelo. Se hace con un callback de LangGraph, porque la salida estructurada no deja el uso en `messages`.
 - R8: El tope de pasos pasa de 10 a 12, porque el router suma un paso y así se conserva la capacidad de hasta 4 rondas de herramientas.
-- R9: Prompts en archivos propios: `router.md`, `chat.md` y `clarify.md`. Temperatura 0 en el router.
+- R9: Prompts en archivos propios: `router.md`, `chat.md` y `clarify.md`. No se fija temperatura: Haiku 5.5 rechaza ese parámetro (error 400 "`temperature` is deprecated for this model", descubierto al probar con el modelo real). Como el router no es determinístico, la evaluación se repite varias veces antes de dar un criterio por cumplido.
 - R10: Los casos de evaluación se escriben y **se congelan antes** de redactar el prompt del router, y ninguna de esas frases aparece en el prompt (para no medir un modelo que ya vio las respuestas).
 - R11: La terminal muestra la ruta elegida, por ejemplo `[ruta] query: pregunta por la cantidad de turnos de un día`.
 

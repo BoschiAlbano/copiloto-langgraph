@@ -9,22 +9,22 @@ export type Agent = ReturnType<typeof createAgent>;
 
 /**
  * Arma el copiloto real:
- * - router y aclaración: modelo barato (MODEL_ROUTER); el router con salida estructurada, temperatura 0;
+ * - router y aclaración: modelo barato (MODEL_ROUTER); el router con salida estructurada;
  * - agente: MODEL_AGENT con herramientas de lectura sobre la base con el rol copilot_reader;
  * - charla: MODEL_AGENT sin herramientas.
  */
 export function createAgent(env: Env) {
   const db = createPrisma(env.DATABASE_URL_READ);
   const tools = makeReadTools(db);
-  const claude = (model: string, temperature?: number) =>
-    new ChatAnthropic({ model, apiKey: env.ANTHROPIC_API_KEY, ...(temperature !== undefined && { temperature }) });
+  // Sin `temperature`: Haiku 5.5 rechaza ese parámetro ("deprecated for this model").
+  const claude = (model: string) => new ChatAnthropic({ model, apiKey: env.ANTHROPIC_API_KEY });
 
   const graph = buildGraph({
     models: {
-      router: claude(env.MODEL_ROUTER, 0).withStructuredOutput(routerOutputSchema, { name: "route", includeRaw: true }),
+      router: claude(env.MODEL_ROUTER).withStructuredOutput(routerOutputSchema, { name: "route", includeRaw: true }),
       agent: claude(env.MODEL_AGENT).bindTools(tools),
       chat: claude(env.MODEL_AGENT),
-      clarify: claude(env.MODEL_ROUTER, 0),
+      clarify: claude(env.MODEL_ROUTER),
     },
     tools,
   });

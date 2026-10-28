@@ -1,10 +1,11 @@
 import { createInterface } from "node:readline/promises";
 import type { BaseMessage } from "@langchain/core/messages";
-import { estimateCostUsd } from "../config/pricing.js";
 import { loadEnv } from "../config/env.js";
 import { createAgent } from "../graph/create-agent.js";
 import { AGENT_RECURSION_LIMIT } from "../graph/limits.js";
 import { runTurn } from "../graph/run-turn.js";
+import { costOfUsage, mergeUsage, type ModelUsage } from "../graph/usage-tracker.js";
+import { describeUsagePerModel, describeUsageTotal, usd } from "./format.js";
 
 let env;
 try {
@@ -18,14 +19,14 @@ const agent = createAgent(env);
 const rl = createInterface({ input: process.stdin, output: process.stdout });
 
 const dim = (text: string) => `\x1b[2m${text}\x1b[0m`;
-const number = (n: number) => n.toLocaleString("es-AR");
-const usd = (n: number | null) => (n === null ? "s/d" : `US$ ${n.toFixed(4).replace(".", ",")}`);
 
-console.log(`Copiloto de la barbería (modelo: ${env.MODEL_AGENT}). Escribí "salir" para terminar.\n`);
+console.log(
+  `Copiloto de la barbería (router: ${env.MODEL_ROUTER} · agente: ${env.MODEL_AGENT}). Escribí "salir" para terminar.\n`,
+);
 
 // El historial es lo que devuelve el grafo en cada turno; acá solo se lo volvemos a pasar.
 let messages: BaseMessage[] = [];
-const session = { inputTokens: 0, outputTokens: 0 };
+let session: ModelUsage[] = [];
 
 let closed = false;
 rl.on("close", () => (closed = true));
@@ -41,19 +42,15 @@ for await (const line of rl) {
     try {
       const turn = await runTurn(agent, messages, input);
       messages = turn.messages;
-      const { summary } = turn;
-      session.inputTokens += summary.inputTokens;
-      session.outputTokens += summary.outputTokens;
+      const { summary, route } = turn;
+      session = mergeUsage(session, summary.usage);
 
+      if (route.intent) console.log(dim(`\n  [ruta] ${route.intent}: ${route.reason ?? "sin motivo"}`));
       for (const call of summary.toolCalls) console.log(dim(`  [herramienta] ${call.name} ${JSON.stringify(call.args)}`));
       console.log(`\nCopiloto: ${turn.reply}\n`);
-      console.log(
-        dim(
-          `  [uso] ${summary.modelCalls} llamada(s) al modelo · entrada ${number(summary.inputTokens)} · salida ${number(summary.outputTokens)} tokens · ` +
-            `${usd(estimateCostUsd(env.MODEL_AGENT, summary.inputTokens, summary.outputTokens))} ` +
-            `(sesión: ${usd(estimateCostUsd(env.MODEL_AGENT, session.inputTokens, session.outputTokens))})\n`,
-        ),
-      );
+      console.log(dim(`  [uso] ${describeUsageTotal(summary.usage)} (sesión: ${usd(costOfUsage(session))})`));
+      for (const detail of describeUsagePerModel(summary.usage)) console.log(dim(`        ${detail}`));
+      console.log("");
     } catch (error) {
       const e = error as Error;
       const message =
