@@ -68,6 +68,7 @@ export async function listAppointments(
 
   return {
     total,
+    activeCount: total - (countByStatus.cancelled ?? 0),
     countByStatus,
     truncated: total > rows.length,
     appointments: rows.map((a) => ({
@@ -87,8 +88,8 @@ export const makeListAppointmentsTool = (db: Db) =>
     name: "listAppointments",
     description:
       "Lista turnos entre dos fechas (hora de Argentina, ambas incluidas, hasta 31 días), ordenados por horario. " +
-      "Podés filtrar por barbero, cliente o estado. Devuelve `total` exacto, `countByStatus` (cantidad por estado) " +
-      `y hasta ${MAX_APPOINTMENTS} turnos. Sin filtro de estado incluye todos, también los cancelados: ` +
-      "para cantidades usá siempre total y countByStatus, no cuentes las filas.",
+      "Podés filtrar por barbero, cliente o estado. Devuelve `total` exacto, `activeCount` (turnos no cancelados), " +
+      `\`countByStatus\` (cantidad por estado) y hasta ${MAX_APPOINTMENTS} turnos. Sin filtro de estado incluye todos, ` +
+      "también los cancelados. Para cantidades usá estos campos, no cuentes las filas.",
     schema: listAppointmentsInput,
   });

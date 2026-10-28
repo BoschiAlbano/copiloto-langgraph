@@ -24,6 +24,13 @@ describe.skipIf(!hasDb)("listAppointments", () => {
     expect(r.countByStatus).toEqual(expected);
     expect(r.total).toBe(rows.reduce((s, x) => s + x.n, 0));
     expect(r.total).toBeGreaterThan(0);
+
+    const active = (await ctx.sql.query(
+      `SELECT COUNT(*)::int AS n FROM appointments
+       WHERE (starts_at AT TIME ZONE ${AR})::date = $1::date AND status <> 'cancelled'`,
+      [day],
+    )).rows[0].n;
+    expect(r.activeCount).toBe(active);
   });
 
   it("devuelve los turnos ordenados, con hora de Argentina y solo del día pedido", async () => {
