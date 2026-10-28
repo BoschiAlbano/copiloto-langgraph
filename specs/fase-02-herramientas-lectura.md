@@ -1,6 +1,6 @@
 # Fase 2: Agente con herramientas de lectura
 
-Estado: **borrador, pendiente de aprobación**
+Estado: **aprobada, en implementación**
 
 ## Objetivo
 Que el modelo consulte datos reales del negocio mediante herramientas acotadas, sin poder leer ni escribir nada fuera de ellas.
@@ -158,7 +158,7 @@ sequenceDiagram
 ```
 
 ## Tareas
-- [ ] T1: migración `0002_reader_role`, script `db:roles`, `db:reset` actualizado y contraseña propia en `DATABASE_URL_READ`. *Verif.:* CA4.
+- [x] T1: migración `0002_reader_role`, script `db:roles`, `db:reset` actualizado y contraseña propia en `DATABASE_URL_READ`. *Verif.:* CA4.
 - [ ] T2: utilidades de fecha y zona horaria. *Verif.:* tests con casos de borde (medianoche, fin de mes).
 - [ ] T3: `findClient`. *Verif.:* CA5 y el caso de texto tipo SQL de CA3.
 - [ ] T4: `listAppointments`. *Verif.:* CA5 con el total de mañana contrastado con SQL.

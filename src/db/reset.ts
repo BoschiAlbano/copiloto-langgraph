@@ -27,4 +27,5 @@ try {
 }
 
 execSync("npx prisma migrate deploy", { stdio: "inherit" });
+execSync("npx tsx src/db/roles.ts", { stdio: "inherit" });
 execSync("npx tsx src/db/seed.ts", { stdio: "inherit" });
