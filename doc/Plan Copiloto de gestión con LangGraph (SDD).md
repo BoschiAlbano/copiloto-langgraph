@@ -122,12 +122,13 @@ El negocio de ejemplo necesita siete tablas propias más una de auditoría; las 
 
 ## Estado del grafo y herramientas
 
-El estado crece fase a fase: arranca con solo los mensajes y termina con ocho campos. Todos se validan con Zod.
+El estado crece fase a fase: arranca con solo los mensajes y termina con nueve campos. Todos se validan con Zod.
 
 | Campo | Contenido | Cómo se actualiza | Fase |
 | --- | --- | --- | --- |
 | `messages` | Historial de la conversación | Se agregan mensajes nuevos | 1 |
-| `intent` | Consulta, acción, reporte o charla | Reemplaza el valor | 3 |
+| `intent` | Consulta, acción, reporte, charla o aclaración (`unclear`) | Reemplaza el valor | 3 |
+| `intentReason` | Motivo que escribió el router (para mostrar la ruta y depurar) | Reemplaza el valor | 3 |
 | `pendingAction` | Acción propuesta: tipo, parámetros y riesgo | Reemplaza el valor | 5 |
 | `approval` | Aprobada, rechazada o editada, con comentario | Reemplaza el valor | 5 |
 | `reportParts` | Secciones de un reporte armadas en paralelo | Se concatenan | 6 |
@@ -346,7 +347,7 @@ La API Batch cobra la mitad en Sonnet 5.5 (1 y 5), útil para correr las evaluac
 
 | Pedido | Con Sonnet 5.5 | Con Haiku 5.5 |
 | --- | --- | --- |
-| Consulta típica (medido en la fase 2) | US$ 0,014 | US$ 0,0007 |
+| Consulta típica (medido en la fase 3, con router) | US$ 0,014 | US$ 0,0009 |
 | Acción con aprobación | US$ 0,03 | US$ 0,0015 |
 | Reporte en paralelo | US$ 0,08 | US$ 0,004 |
 | Set de evaluaciones (30 casos) | US$ 0,90 | US$ 0,05 |
@@ -362,7 +363,7 @@ La API Batch cobra la mitad en Sonnet 5.5 (1 y 5), útil para correr las evaluac
 
 **Notas**
 
-- Salvo la consulta típica, que se midió en la fase 2 (ver `specs/fase-02-herramientas-lectura.md`), son estimaciones propias, no mediciones. La medición dio un costo ~30 % menor que lo estimado; se vuelve a medir en las fases 3, 5 y 6, porque el router y las herramientas de escritura suman costo fijo por llamada.
+- Salvo la consulta típica, medida en las fases 2 y 3 (ver sus specs), son estimaciones propias, no mediciones. Con Sonnet como agente el costo medido es ~30 % menor que el estimado y el router de Haiku agrega solo ~US$ 0,0002 por turno (~1,5 %). Con Haiku como agente el router sí pesa (+30 %), porque el agente ya era muy barato. Se vuelve a medir en las fases 5 y 6: las herramientas de escritura suman costo fijo por llamada.
 - Los precios salen de páginas que reproducen la documentación oficial; confirmalos en la consola antes de cargar crédito.
 - El gasto de la IA con la que programás (el desarrollo con SDD) es aparte y depende de la herramienta y el plan que uses.
 - Todo lo demás corre en local (Supabase, grafo y app web), así que la API de Claude es el único gasto del proyecto.
