@@ -5,10 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 import { buildGraph, routeByIntent } from "../src/graph/index.js";
 import { INTENTS, type Intent } from "../src/graph/intents.js";
 import { AGENT_RECURSION_LIMIT } from "../src/graph/limits.js";
-import { ACTION_STUB_MESSAGE, REPORT_STUB_MESSAGE } from "../src/graph/messages.js";
+import { REPORT_STUB_MESSAGE } from "../src/graph/messages.js";
 import type { AgentModel } from "../src/graph/nodes/agent.js";
 import type { RouterModel } from "../src/graph/nodes/router.js";
 import { makeState } from "../src/graph/state.js";
+import { unexpectedActions } from "./helpers/graph.js";
 
 /** Modelo de texto falso: contesta con un texto fijo y cuenta las llamadas. */
 function textModel(text: string) {
@@ -53,9 +54,10 @@ function setup(routerOutputs: unknown[], agentReplies?: AIMessage[] | ((callNumb
       return typeof agentReplies === "function" ? agentReplies(n) : agentReplies[Math.min(n, agentReplies.length - 1)]!;
     },
   };
+  const action = textModel("respuesta del agente de acciones");
   const warn = vi.fn();
-  const graph = buildGraph({ models: { router, agent, chat, clarify }, tools: [getStock], warn });
-  return { graph, router, agent, chat, clarify, warn };
+  const graph = buildGraph({ models: { router, agent, action, chat, clarify }, tools: [getStock], actions: unexpectedActions, warn });
+  return { graph, router, agent, action, chat, clarify, warn };
 }
 
 /** Corre un turno y devuelve los nodos recorridos, en orden, y el estado final. */
@@ -75,7 +77,7 @@ describe("cada intención llega a su rama (CA5)", () => {
   const expectedPath: Record<Intent, string[]> = {
     query: ["router", "agent"],
     chat: ["router", "chat"],
-    action: ["router", "action_stub"],
+    action: ["router", "action_agent"],
     report: ["router", "report_stub"],
     unclear: ["router", "clarify"],
   };
@@ -116,18 +118,21 @@ describe("solo se usa el modelo de la rama elegida", () => {
     expect(state.messages.at(-1)?.text).toBe("¿A qué turno te referís?");
   });
 
-  for (const [intent, message, phase] of [
-    ["action", ACTION_STUB_MESSAGE, "fase 5"],
-    ["report", REPORT_STUB_MESSAGE, "fase 6"],
-  ] as const) {
-    it(`${intent}: marcador con mensaje fijo, sin llamar a ningún modelo salvo el router (CA6)`, async () => {
-      const t = setup([route(intent)]);
-      const { state } = await runPath(t.graph, ask("pedido"));
-      expect(state.messages.at(-1)?.text).toBe(message);
-      expect(message).toContain(phase);
-      expect([t.router.calls, t.agent.calls, t.chat.calls, t.clarify.calls]).toEqual([1, 0, 0, 0]);
-    });
-  }
+  it("reporte: marcador con mensaje fijo, sin llamar a ningún modelo salvo el router (CA6)", async () => {
+    const t = setup([route("report")]);
+    const { state } = await runPath(t.graph, ask("pedido"));
+    expect(state.messages.at(-1)?.text).toBe(REPORT_STUB_MESSAGE);
+    expect(REPORT_STUB_MESSAGE).toContain("fase 6");
+    expect([t.router.calls, t.agent.calls, t.action.calls, t.chat.calls, t.clarify.calls]).toEqual([1, 0, 0, 0, 0]);
+  });
+
+  it("acción: usa solo el agente de acciones (y no el de consultas), y una respuesta sin llamadas termina el turno", async () => {
+    const t = setup([route("action")]);
+    const { state, path } = await runPath(t.graph, ask("pedido de cambio"));
+    expect(path).toEqual(["router", "action_agent"]);
+    expect(state.messages.at(-1)?.text).toBe("respuesta del agente de acciones");
+    expect([t.router.calls, t.action.calls, t.agent.calls, t.chat.calls, t.clarify.calls]).toEqual([1, 1, 0, 0, 0]);
+  });
 });
 
 describe("el router decide de nuevo en cada turno", () => {
@@ -159,7 +164,7 @@ describe("fallas del router (CA7)", () => {
 describe("routeByIntent", () => {
   it("cubre las cinco intenciones y usa la rama de solo lectura si falta", () => {
     const at = (intent: Intent | undefined) => routeByIntent(makeState([], { intent }));
-    expect(INTENTS.map(at)).toEqual(["agent", "action_stub", "report_stub", "chat", "clarify"]);
+    expect(INTENTS.map(at)).toEqual(["agent", "action_agent", "report_stub", "chat", "clarify"]);
     expect(at(undefined)).toBe("agent");
   });
 });

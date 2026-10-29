@@ -8,6 +8,7 @@ import type { RouterModel } from "../src/graph/nodes/router.js";
 import { continueTurn, runTurn, ThreadPendingError } from "../src/graph/run-turn.js";
 import { getStatus } from "../src/graph/threads.js";
 import { checkpointsUrl, openCheckpointing } from "./helpers/checkpointing.js";
+import { unexpectedActions } from "./helpers/graph.js";
 import { echoModel, toolCall } from "./helpers/models.js";
 import { TestThreads } from "./helpers/threads.js";
 
@@ -60,10 +61,12 @@ describe.skipIf(!checkpointsUrl)("turno a medias", () => {
       models: {
         router: flakyRouter([0]),
         agent: flakyModel([], () => new AIMessage("Hay 7 turnos.")),
+        action: echoModel().model,
         chat: echoModel().model,
         clarify: echoModel().model,
       },
       tools: [countTurns],
+      actions: unexpectedActions,
       checkpointer: cp.saver,
     });
 
@@ -96,10 +99,12 @@ describe.skipIf(!checkpointsUrl)("turno a medias", () => {
         models: {
           router: flakyRouter([]),
           agent: flakyModel(failOn, script),
+          action: echoModel().model,
           chat: echoModel().model,
           clarify: echoModel().model,
         },
         tools: [countTurns],
+        actions: unexpectedActions,
         checkpointer: saver,
       });
 
@@ -138,10 +143,12 @@ describe.skipIf(!checkpointsUrl)("turno a medias", () => {
       models: {
         router: flakyRouter([0]),
         agent: flakyModel([], () => new AIMessage("ok")),
+        action: echoModel().model,
         chat: echoModel().model,
         clarify: echoModel().model,
       },
       tools: [countTurns],
+      actions: unexpectedActions,
       checkpointer: cp.saver,
     });
     await expect(runTurn({ graph }, id, "primera")).rejects.toThrow(/529/);
@@ -163,10 +170,12 @@ describe.skipIf(!checkpointsUrl)("turno a medias", () => {
       models: {
         router: flakyRouter([]),
         agent: flakyModel([], (n) => (n < 8 ? toolCall(`c${n}`, "countTurns") : new AIMessage("Listo."))),
+        action: echoModel().model,
         chat: echoModel().model,
         clarify: echoModel().model,
       },
       tools: [countTurns],
+      actions: unexpectedActions,
       checkpointer: cp.saver,
     });
 

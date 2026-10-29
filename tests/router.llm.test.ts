@@ -44,14 +44,6 @@ describe.skipIf(!enabled)("router con el modelo real", () => {
       }
     }, 120_000);
 
-    it("CA6: una acción recibe el marcador y no llama al agente ni a las herramientas", async () => {
-      const turn = await runTurn(agent, threads.fresh(), "Cancelá el turno de Facundo Sosa de hoy.");
-      expect(turn.route.intent).toBe("action");
-      expect(turn.reply).toContain("fase 5");
-      expect(turn.summary.toolCalls).toEqual([]);
-      expect(turn.summary.modelCalls).toBe(1); // solo el router
-    }, 60_000);
-
     it("CA9: el uso incluye al router además del agente", async () => {
       const turn = await runTurn(agent, threads.fresh(), "¿Cuántos turnos hay mañana?");
       expect(turn.route.intent).toBe("query");

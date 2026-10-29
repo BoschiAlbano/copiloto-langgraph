@@ -132,7 +132,7 @@ describe.skipIf(!checkpointsUrl)("persistencia de hilos", () => {
       ["query", ["__start__", "router", "agent", "tools", "agent"]],
       ["chat", ["__start__", "router", "chat"]],
       ["unclear", ["__start__", "router", "clarify"]],
-      ["action", ["__start__", "router", "action_stub"]],
+      ["action", ["__start__", "router", "action_agent"]],
       ["report", ["__start__", "router", "report_stub"]],
     ];
     for (const [intent, expected] of paths) {
