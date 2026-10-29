@@ -48,6 +48,42 @@ export function formatLocal(date: Date): string {
   return new Date(date.getTime() - ART_OFFSET_MS).toISOString().replace(/\.\d{3}Z$/, "-03:00");
 }
 
+/** Día y hora locales de Argentina (`YYYY-MM-DD` y `HH:mm`) → instante. */
+export function localDateTimeToUtc(date: string, time: string): Date {
+  const { from } = localDayRangeUtc(date, date);
+  const [hours, minutes] = time.split(":").map(Number);
+  return new Date(from.getTime() + (hours! * 60 + minutes!) * 60_000);
+}
+
+/** Día de la semana de una fecha local: 0 = domingo … 6 = sábado. */
+export function localWeekday(date: string): number {
+  return new Date(parseDay(date)!).getUTCDay();
+}
+
+/** Minutos desde la medianoche local de Argentina. */
+export function localMinutesOfDay(date: Date): number {
+  const local = new Date(date.getTime() - ART_OFFSET_MS);
+  return local.getUTCHours() * 60 + local.getUTCMinutes();
+}
+
+/** Para mostrar a una persona, por ejemplo `lun 23/11 15:00` (hora de Argentina). */
+export function describeMoment(date: Date): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("es-AR", {
+      timeZone: TIME_ZONE,
+      weekday: "short",
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(date)
+      .map((p) => [p.type, p.value]),
+  );
+  return `${parts.weekday?.replace(".", "")} ${parts.day}/${parts.month} ${parts.hour}:${parts.minute}`;
+}
+
 /** El día local de Argentina de un instante, como `YYYY-MM-DD`. */
 export function localDateOf(date: Date): string {
   return new Date(date.getTime() - ART_OFFSET_MS).toISOString().slice(0, 10);
