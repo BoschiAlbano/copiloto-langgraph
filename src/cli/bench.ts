@@ -41,7 +41,9 @@ const CASES: Case[] = [
     name: "Acción: agendar turno (propuesta y rechazo)",
     turns: [`Agendá un corte para Julián Romero el ${mondayInThreeWeeks(new Date()).spoken} a las 15 con Lucas.`],
   },
-  { group: "extra", name: "Pedido de reporte (marcador)", turns: ["Armame el resumen de la semana."] },
+  // Reporte: planificador + tres secciones en paralelo (sin modelo) + «Lectura». Sin ciclo de herramientas.
+  { group: "extra", name: "Reporte en paralelo (resumen de la semana)", turns: ["Armame el resumen de la semana."] },
+  { group: "extra", name: "Reporte en paralelo (últimos 30 días)", turns: ["Dame un panorama completo del negocio de los últimos 30 días."] },
   { group: "extra", name: "Pedido ambiguo (aclaración)", turns: ["Cancelalo."] },
 ];
 

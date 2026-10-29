@@ -13,8 +13,11 @@ Convención de los diagramas: **línea continua** = arista fija (siempre ocurre)
 | 3 | 7 (`router`, `agent`, `tools`, `chat`, `action_stub`, `report_stub`, `clarify`) | 6 | 7 | 13 | `messages`, `intent`, `intentReason` | Router de intención y cinco ramas |
 | 4 | 7 (los mismos) | 6 | 7 | 13 | `messages`, `intent`, `intentReason` | Checkpointer de Postgres: el estado se guarda por `thread_id` (cambia cómo se compila, no la forma del grafo) |
 | 5 | 10 (`router`, `agent`, `tools`, `chat`, `report_stub`, `clarify`, `action_agent`, `propose_action`, `await_approval`, `execute_action`) | 5 | 16 | 21 | `messages`, `intent`, `intentReason`, `pendingAction`, `approval` | Acciones con aprobación humana: `interrupt`, `Command({ resume })`, rol de escritura acotado y auditoría |
+| 6 | 14 (los de la fase 5 menos `report_stub`, más `plan_report`, `report_sales`, `report_appointments`, `report_stock` y `compose_report`) | 8 | 19 | 27 | `messages`, `intent`, `intentReason`, `pendingAction`, `approval`, `report`, `reportParts` | Reportes en paralelo: fan-out con `Send`, fan-in y un reducer que concatena |
 
 Qué cambió de la fase 1 a la 2: el nodo `chat` pasó a llamarse `agent` y ahora puede pedir herramientas; apareció el nodo `tools`; la arista `chat → END` se volvió condicional (`agent → END` solo si no hay llamadas pendientes) y se sumó `tools → agent`, que cierra el ciclo.
+
+Qué cambió de la fase 5 a la 6: el último marcador, `report_stub`, se reemplazó por un **fan-out**: `plan_report` lanza con `Send` tres nodos en el mismo paso y un nodo final los consolida (**fan-in**). Se sumaron dos campos al estado y el primero con reducer propio, aparte de `messages`.
 
 Qué cambió de la fase 4 a la 5: el marcador `action_stub` se reemplazó por una rama real de cuatro nodos que **pausa el grafo** antes de escribir. La arista `tools → agent` dejó de ser fija: ahora vuelve al agente que preguntó (el de consultas o el de acciones). Se sumaron dos campos al estado.
 
@@ -250,9 +253,74 @@ flowchart TD
 
 ---
 
+## Fase 6: reportes en paralelo (`fase-06`)
+
+```mermaid
+flowchart TD
+    S((START)) -->|"fija"| R["router"]
+    R -.->|"query"| A["agent ⇄ tools<br/>(sin cambios)"]
+    R -.->|"chat · unclear"| X["chat · clarify"]
+    R -.->|"action"| AC["action_agent → propose_action →<br/>await_approval → execute_action<br/>(sin cambios)"]
+    A --> E((END))
+    X --> E
+    AC --> E
+    R -.->|"report"| P["plan_report<br/>Haiku, salida estructurada:<br/>período simbólico → fechas por código"]
+    P -.->|"Send"| V["report_sales"]
+    P -.->|"Send"| T["report_appointments"]
+    P -.->|"Send"| K["report_stock"]
+    V -->|"fija"| C["compose_report<br/>cifras por código + «Lectura» del modelo"]
+    T -->|"fija"| C
+    K -->|"fija"| C
+    C --> E
+```
+
+**Resumen:** 14 nodos propios (`report_stub` desapareció; se sumaron `plan_report`, `report_sales`, `report_appointments`, `report_stock` y `compose_report`), 2 nodos especiales, 8 aristas fijas y 19 condicionales: **27 conexiones** (comprobado con `getGraphAsync()`). Las condicionales salen de siete decisiones: las seis de antes y `fanOutReport` (3 destinos, uno por sección). El estado suma `report` y `reportParts` (**con reducer**): 7 campos.
+
+| Nodo | Quién lo escribió | Qué hace | Modelo | Escribe en el estado |
+| --- | --- | --- | --- | --- |
+| `plan_report` | Nosotros (`nodes/report.ts`) | Elige el período con una forma simbólica (`this_week`, `last_month`, `last_days`…) y **el código calcula las fechas** con el reloj de Argentina | `MODEL_ROUTER` con salida estructurada | `report` (id, fechas, título, aviso) |
+| `report_sales`, `report_appointments`, `report_stock` | Nosotros (`nodes/report.ts`, `report/sections.ts`) | Corren **a la vez**; cada una llama a la misma función de lectura que su herramienta. Nunca lanzan: si fallan devuelven una parte con el motivo | ninguno | 1 parte en `reportParts` |
+| `compose_report` | Nosotros (`nodes/report.ts`, `report/render.ts`) | Corre **una vez** cuando terminaron las tres. El texto con las cifras lo arma el código; el modelo agrega una «Lectura» que se descarta si cita una cifra que no está en los datos | `MODEL_REPORT` | 1 mensaje de IA |
+
+| # | Desde | Hasta | Tipo | Cómo se declara (`src/graph/index.ts`) |
+| --- | --- | --- | --- | --- |
+| 1 | `START` | `router` | Fija | `.addEdge(START, "router")` |
+| 2–6 | `router` | `agent`, `chat`, `action_agent`, `plan_report`, `clarify` | Condicional (`intent`) | `routeByIntent` |
+| 7–8 | `agent` | `tools`, `END` | Condicional | `routeAfterAgent` |
+| 9–10 | `tools` | `agent`, `action_agent` | Condicional (`intent`) | `routeAfterTools` |
+| 11–13 | `action_agent` | `tools`, `propose_action`, `END` | Condicional | `routeAfterActionAgent` |
+| 14–15 | `propose_action` | `await_approval`, `action_agent` | Condicional | `routeAfterPropose` |
+| 16–17 | `await_approval` | `execute_action`, `await_approval` | Condicional | `routeAfterApproval` |
+| **18–20** | **`plan_report`** | **`report_sales`, `report_appointments`, `report_stock`** | **Condicional que devuelve `Send`** | **`.addConditionalEdges("plan_report", fanOutReport, [...])`: lanza las tres en el mismo paso** |
+| 21 | `execute_action` | `action_agent` | Fija | `.addEdge("execute_action", "action_agent")` |
+| **22–24** | **cada sección** | **`compose_report`** | **Fijas (fan-in)** | **`.addEdge(sección, "compose_report")`: corre una vez, en el paso siguiente** |
+| 25 | `compose_report` | `END` | Fija | `.addEdge("compose_report", END)` |
+| 26–27 | `chat`, `clarify` | `END` | Fijas | `.addEdge(…, END)` |
+
+**Cómo se ve el paralelismo en la traza** (`npm run threads -- history <id>`, del más viejo al más nuevo):
+
+| Paso | Corrió | Notas |
+| --- | --- | --- |
+| 1 | `router` | Elige `report` |
+| 2 | `plan_report` | Decide el período |
+| 3 | **`report_sales` + `report_appointments` + `report_stock`** | **Los tres en un único paso (superstep)**; escriben a la vez en `reportParts` y el reducer los junta |
+| 4 | `compose_report` | Fin |
+
+| Situación | Camino | Notas |
+| --- | --- | --- |
+| Pedido de reporte | `START → router → plan_report → (3 secciones) → compose_report → END` | 3 llamadas al modelo: router, planificador y «Lectura» |
+| Una sección falla | igual | Esa sección dice «No disponible: …» y las otras salen completas |
+| Fallan las tres | igual, sin «Lectura» | El reporte lo dice y no hay llamada al modelo para la «Lectura» |
+| Falla solo la «Lectura» | igual | El reporte sale con las cifras y un aviso |
+| Período inválido | igual | Se usa la semana actual y el reporte lo avisa |
+| Segundo reporte en el mismo hilo | igual | El reducer reemplaza las partes del anterior (otro `reportId`) |
+
+**Qué NO usa el reporte:** ninguna herramienta ni `ToolNode`, ni el rol `copilot_actions`: solo lee con `copilot_reader`.
+
+---
+
 ## Próximas fases (planeado, aún no existe)
 
 | Fase | Cambio previsto en el grafo |
 | --- | --- |
-| 6 | Reportes en paralelo con `Send` (varios nodos a la vez que se juntan en uno) |
 | 7 | Los caminos pasan a ser subgrafos coordinados por un supervisor |

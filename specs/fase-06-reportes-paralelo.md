@@ -1,6 +1,6 @@
 # Fase 6: Reportes en paralelo
 
-Estado: **aprobada, en implementación**
+Estado: **terminada** (etiqueta `fase-06`)
 
 ## Objetivo
 Que un pedido como «armame el resumen de la semana» junte ventas, turnos y stock bajo **a la vez** (fan-out), y que un nodo final los consolide en un solo texto (fan-in), sin que la falla de una sección tire abajo el reporte entero.
@@ -55,18 +55,18 @@ Se guardan en `evals/report-cases.ts` **antes** de escribir los prompts. Se eval
 | P8 | «Cómo estuvo el mes pasado en general.» | `last_month` → 2026-09-01 al 2026-09-30 |
 
 ## Criterios de aceptación
-- [ ] CA1 (paralelo): las tres secciones corren a la vez. Test con secciones que demoran 200 ms: el reporte tarda menos que la suma, los intervalos de ejecución se superponen y la historia de checkpoints muestra los tres nodos en un único paso. `compose_report` corre exactamente una vez y después de los tres.
-- [ ] CA2 (el reporte incluye todo): con la base real, el reporte contiene las tres secciones y sus cifras coinciden con una consulta SQL independiente (total y cantidad de ventas, turnos por estado, productos bajo el mínimo).
-- [ ] CA3 (falla parcial): con una sección que falla (para cada una de las tres), el reporte indica cuál falta y muestra las otras dos; el mensaje no contiene detalles internos (usuario de la base, texto de la excepción). Con las tres fallando, el reporte lo dice y no falla el turno. Con la «Lectura» fallando, el reporte sale sin ella y con aviso.
-- [ ] CA4 (reducer): las tres partes de un mismo paso se concatenan sin perderse, en cualquier orden de llegada; un reporte nuevo en el mismo hilo reemplaza las partes del anterior.
-- [ ] CA5 (período): la resolución de períodos es una función pura con tests de borde (lunes y domingo como «hoy», fin de mes, año nuevo, febrero bisiesto, `last_days` en los extremos, `custom` inválido, rango de más de 366 días) y usa siempre el horario de Argentina.
-- [ ] CA6 (planificador): de P1 a P8, el planificador acierta al menos 7 de 8 con Haiku 5.5 real, en tres corridas seguidas, y P1, P3 y P6 no pueden fallar. Ninguna frase de los escenarios aparece en `report-plan.md` (lo verifica un test).
-- [ ] CA7 (sin cifras inventadas): con el modelo real, cada número de la «Lectura» aparece en los datos del reporte (comparación de dígitos sin separadores). Si una corrida inventa una cifra, el criterio no se cumple.
-- [ ] CA8 (límites): un pedido de 60 días da ventas y stock y «turnos: no disponible» con el motivo; un período inválido o de más de 366 días cae en la semana actual y lo avisa.
-- [ ] CA9 (hilos): el reporte se guarda en el hilo como un mensaje de IA normal, se puede retomar la conversación después, y un segundo reporte en el mismo hilo no mezcla partes con el primero. Los tests de las fases 1 a 5 solo cambian donde cambia el grafo (`report_stub`).
-- [ ] CA10 (solo lectura): el reporte no usa el rol `copilot_actions` ni escribe nada; después de correrlo, los conteos de la base son los mismos.
-- [ ] CA11 (costo): se mide un reporte completo (Haiku y Sonnet como `MODEL_REPORT`) y se compara con el plan (US$ 0,08 con Sonnet, US$ 0,004 con Haiku). Si difiere más de un 20 %, se actualiza el presupuesto.
-- [ ] CA12: `npm test`, `npm run typecheck` y `npm run db:reset` (dos veces seguidas) pasan; el diagrama de la fase se agrega a `specs/mapa-del-grafo.md`; se actualizan README, `.env.example` y el plan.
+- [x] CA1 (paralelo): las tres secciones corren a la vez. Test con secciones que demoran 200 ms: el reporte tarda menos que la suma, los intervalos de ejecución se superponen y la historia de checkpoints muestra los tres nodos en un único paso. `compose_report` corre exactamente una vez y después de los tres.
+- [x] CA2 (el reporte incluye todo): con la base real, el reporte contiene las tres secciones y sus cifras coinciden con una consulta SQL independiente (total y cantidad de ventas, turnos por estado, productos bajo el mínimo).
+- [x] CA3 (falla parcial): con una sección que falla (para cada una de las tres), el reporte indica cuál falta y muestra las otras dos; el mensaje no contiene detalles internos (usuario de la base, texto de la excepción). Con las tres fallando, el reporte lo dice y no falla el turno. Con la «Lectura» fallando, el reporte sale sin ella y con aviso.
+- [x] CA4 (reducer): las tres partes de un mismo paso se concatenan sin perderse, en cualquier orden de llegada; un reporte nuevo en el mismo hilo reemplaza las partes del anterior.
+- [x] CA5 (período): la resolución de períodos es una función pura con tests de borde (lunes y domingo como «hoy», fin de mes, año nuevo, febrero bisiesto, `last_days` en los extremos, `custom` inválido, rango de más de 366 días) y usa siempre el horario de Argentina.
+- [x] CA6 (planificador): de P1 a P8, el planificador acierta al menos 7 de 8 con Haiku 5.5 real, en tres corridas seguidas, y P1, P3 y P6 no pueden fallar. Ninguna frase de los escenarios aparece en `report-plan.md` (lo verifica un test).
+- [x] CA7 (sin cifras inventadas): con el modelo real, cada número de la «Lectura» aparece en los datos del reporte (comparación de dígitos sin separadores). Si una corrida inventa una cifra, el criterio no se cumple.
+- [x] CA8 (límites): un pedido de 60 días da ventas y stock y «turnos: no disponible» con el motivo; un período inválido o de más de 366 días cae en la semana actual y lo avisa.
+- [x] CA9 (hilos): el reporte se guarda en el hilo como un mensaje de IA normal, se puede retomar la conversación después, y un segundo reporte en el mismo hilo no mezcla partes con el primero. Los tests de las fases 1 a 5 solo cambian donde cambia el grafo (`report_stub`).
+- [x] CA10 (solo lectura): el reporte no usa el rol `copilot_actions` ni escribe nada; después de correrlo, los conteos de la base son los mismos.
+- [x] CA11 (costo): se mide un reporte completo (Haiku y Sonnet como `MODEL_REPORT`) y se compara con el plan (US$ 0,08 con Sonnet, US$ 0,004 con Haiku). Si difiere más de un 20 %, se actualiza el presupuesto.
+- [x] CA12: `npm test`, `npm run typecheck` y `npm run db:reset` (dos veces seguidas) pasan; el diagrama de la fase se agrega a `specs/mapa-del-grafo.md`; se actualizan README, `.env.example` y el plan.
 
 ## Fuera de alcance
 - Exportar a PDF, planilla o correo, gráficos, y reportes programados.
@@ -150,7 +150,39 @@ Una tarea = un commit en la rama `dev/fase-06`.
 9. **T9:** medición de costo (CA11), diagrama, README, plan y cierre con etiqueta `fase-06` (CA12).
 
 ## Decisiones tomadas durante la fase
-(se completa al implementar)
+- **Confirmado lo que la spec dejaba "a confirmar":** (a) `Send` funciona con `StateSchema`; los nodos de sección reciben su entrada propia, no el estado, por lo que se registran con un cast de tipo (`as never`) y una interfaz `SectionInput` explícita; (b) `compose_report` con tres aristas entrantes corre **una sola vez**, en el paso siguiente a las tres secciones; (c) en `getGraphAsync()` las aristas de un `Send` salen como condicionales, una por destino declarado: **27 conexiones**, exacto lo previsto; (d) `ReducedValue` en su forma simple (`valor + reducer`) alcanza, y no hace falta `Overwrite`.
+- **El reducer se reinicia solo por `reportId`.** `mergeParts` descarta las partes de otro reporte y reemplaza una sección repetida del mismo reporte. Así no hay un valor especial de "vaciar" y el campo no crece con cada reporte del hilo.
+- **El orden de los tres nodos dentro de su paso no está definido.** El test de rutas de la fase 3 comparaba la secuencia exacta de nodos; para los reportes ordena las tres secciones antes de comparar. El orden relevante es entre pasos, y ese sí está garantizado.
+- **El modelo elige una forma simbólica del período, el código calcula las fechas.** El esquema que ve el modelo es plano (`kind` + campos opcionales) en vez de una unión discriminada: se completa mejor. Se convierte a `Period` y se valida con `periodSchema`. `last_days` con `n = 1` se rotula como «hoy». Un error mío que atrapó el test de calendario: la spec decía «martes 28 de octubre de 2026» y es **miércoles** (el reloj fijo de los escenarios y el texto se corrigieron antes de escribir los prompts).
+- **Mensajes de error para personas separados de los de herramientas.** `explainError` (en `tools/safe.ts`) informa tal cual los límites y errores esperables, y para cualquier otro error da un texto genérico con el código (`problema del sistema (código P1000)`) y manda el detalle a la consola. Es la misma política de `safeTool`, pero devuelve texto en vez de lanzar.
+- **Los turnos del reporte no traen filas**: `listAppointments(…, { limit: 0 })` devuelve solo `total`, `activeCount` y `countByStatus`, con el mismo límite de 31 días de la herramienta.
+- **Defensa en dos capas contra cifras inventadas en la «Lectura».** El prompt prohíbe calcular, y además `compose_report` compara los números de la «Lectura» con los del reporte; si aparece uno que no está, descarta la «Lectura» y avisa. Con el modelo real, el control no tuvo que actuar: en el test se mira la respuesta **cruda** del modelo (antes del descarte) en tres períodos y ninguna citó una cifra ajena.
+- **Se eliminaron `report_stub`, `stubs.ts` y `messages.ts`**: ya no queda ningún marcador en el grafo.
+- **Un efecto de verificar:** correr `db:reset` (parte de CA12) regenera todos los datos de negocio, las filas de `action_log` y los hilos guardados. Es lo documentado, pero borra lo que se haya probado a mano en el medio.
+- **Intermitente sin causa conocida, de la fase 5:** en una corrida completa con modelo real, el test de los escenarios de acciones (`tests/writes/actions.llm.test.ts`) falló una vez; 4 corridas del corredor (`eval:actions`) y 4 repeticiones del test pasaron 6/6 sin cambios. El mensaje de la aserción incluye el informe completo por escenario, así que una recurrencia dirá cuál fue.
+
+## Medición de costo (CA11)
+`npm run bench -- --extra`, con router y planificador en Haiku 5.5. Un reporte son tres llamadas al modelo (router, planificador y «Lectura») y tres consultas a la base **sin modelo**, sin ciclo de herramientas.
+
+| Caso | Llamadas | Tokens de entrada | Haiku 5.5 en la «Lectura» | Sonnet 5.5 en la «Lectura» |
+| --- | --- | --- | --- | --- |
+| Resumen de la semana | 3 | ~4.200 | US$ 0,0010 | US$ 0,0048 |
+| Últimos 30 días | 3 | ~4.200 | US$ 0,0008 | US$ 0,0050 |
+| **Promedio** | | | **US$ 0,0009** | **US$ 0,0049** |
+| Plan | | | US$ 0,004 | US$ 0,08 |
+| Diferencia | | | **−78 %** | **−94 %** |
+
+- Está muy por debajo del plan porque la estimación suponía un agente por sección; en este diseño las secciones son consultas directas y el modelo solo planifica y comenta. Se actualizan las dos celdas del plan (US$ 0,0009 y US$ 0,005).
+- Una acción con aprobación sigue siendo la operación más cara (US$ 0,0019 con Haiku): un reporte cuesta menos de la mitad.
+- Pasar la «Lectura» de Haiku a Sonnet suma unos US$ 0,004 por reporte (de 0,0009 a 0,0049): con Sonnet, esa llamada es lo que más pesa. Como las cifras no dependen del modelo, Haiku alcanza para escribirla (el control de cifras inventadas no actuó en ningún caso).
 
 ## Qué aprendí
-(se completa al cerrar la fase)
+- **`Send` convierte una arista condicional en un fan-out.** En vez de devolver el nombre de *un* nodo, la función devuelve una lista de `Send(nodo, entrada)` y LangGraph lanza todos en el **mismo paso (superstep)**, cada uno con su propia entrada. No hace falta saber de antemano cuántos habrá (acá son tres fijos, pero la misma mecánica sirve para «uno por cada…»).
+- **Un paso es la unidad del paralelismo, y se ve en la traza.** Los tres nodos corren en el mismo superstep: el checkpoint que dejan figura con `corrió report_sales+report_appointments+report_stock`. El orden *dentro* del paso no está definido; el orden *entre* pasos sí.
+- **Escribir en paralelo en un mismo campo exige un reducer.** Se comprobó con un experimento mínimo: sin reducer, tres `Send` que escriben en `parts` terminan en `InvalidUpdateError: … LastValue can only receive one value per step`; con `ReducedValue` y un reducer que concatena, da `[1,2,3]`. El reducer es lo que hace posible el patrón *map-reduce*: cada nodo aporta una pieza y LangGraph las combina.
+- **El fan-in es "el paso siguiente".** Un nodo con aristas desde las tres secciones corre una sola vez, después de que las tres terminaron: la sincronización la da el superstep, no hay que esperar a mano.
+- **Un reducer también puede ser la política de limpieza.** Con el `reportId` en cada parte, el mismo reducer concatena dentro de un reporte y reemplaza entre reportes; no hace falta un "vaciar" aparte.
+- **Una falla parcial es un dato, no una excepción.** Cada sección devuelve una parte con `status: "ok" | "error"` en vez de lanzar: la excepción en un nodo paralelo cortaría el paso entero, mientras que una parte con error se consolida como cualquier otra y el reporte sigue.
+- **Repartir bien el trabajo entre el modelo y el código.** El modelo hace lo que solo él puede (entender «la semana pasada» y redactar una lectura); el código hace lo que no debe fallar (fechas, consultas, cifras y formato). Las cifras no pasan por un modelo, y lo que el modelo escribe se verifica contra los datos.
+- **Pedirle al modelo una forma simbólica es más robusto que pedirle fechas.** Con 8 escenarios ×3 corridas el planificador no se equivocó nunca en el período, y todo el calendario (semanas de lunes a domingo, fin de mes, bisiestos, huso horario) queda en una función pura con tests de borde.
+- **Medir antes de creer una estimación.** El plan decía US$ 0,08 con Sonnet; salió US$ 0,005. El diseño cambió el costo más que cualquier ajuste de prompt.
