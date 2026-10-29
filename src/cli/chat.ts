@@ -10,6 +10,7 @@ import { costOfUsage, mergeUsage, type ModelUsage } from "../graph/usage-tracker
 import {
   describeActionResult,
   describeCard,
+  describeReportStatus,
   describeUsagePerModel,
   describeUsageTotal,
   looksLikeEdit,
@@ -103,6 +104,7 @@ function show(turn: TurnResult, withRoute: boolean) {
   session = mergeUsage(session, summary.usage);
   if (withRoute && route.intent) console.log(dim(`\n  [ruta] ${route.intent}: ${route.reason ?? "sin motivo"}`));
   for (const call of summary.toolCalls) console.log(dim(`  [herramienta] ${call.name} ${JSON.stringify(call.args)}`));
+  if (turn.report) console.log(dim(`  ${describeReportStatus(turn.report)}`));
   // Lo que pasó con la acción lo cuenta el código; el modelo lo comenta después.
   for (const result of summary.actions) console.log(`\n${describeActionResult(result)}`);
   if (turn.reply) console.log(`\nCopiloto: ${turn.reply}\n`);

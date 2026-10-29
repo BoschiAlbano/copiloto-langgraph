@@ -1,5 +1,6 @@
 import { estimateCostUsd } from "../config/pricing.js";
 import type { ApprovalRequest } from "../graph/approval.js";
+import type { TurnResult } from "../graph/run-turn.js";
 import type { CheckpointInfo, ThreadSummary } from "../graph/threads.js";
 import type { ActionResult } from "../graph/usage.js";
 import { costOfUsage, totalUsage, type ModelUsage } from "../graph/usage-tracker.js";
@@ -60,6 +61,16 @@ export function describeCard(request: ApprovalRequest): string[] {
     ...(action.originalParams ? [`  │ (el copiloto había propuesto: ${JSON.stringify(action.originalParams)})`] : []),
     "  └─ ¿La aprobás?  [s] sí  ·  [n] no (podés escribir un motivo: «n porque …»)  ·  [e] editar los parámetros",
   ];
+}
+
+const SECTION_NAMES = { sales: "ventas", appointments: "turnos", stock: "stock" } as const;
+
+/** Línea de la terminal con el período de un reporte y cómo salió cada sección: `semana del 26/10 al 01/11 · ventas ✔ · turnos ✔ · stock ✖`. */
+export function describeReportStatus(report: NonNullable<TurnResult["report"]>): string {
+  const sections = (Object.keys(SECTION_NAMES) as (keyof typeof SECTION_NAMES)[])
+    .map((s) => `${SECTION_NAMES[s]} ${report.sections[s] === "ok" ? "✔" : "✖"}`)
+    .join(" · ");
+  return `[reporte] ${report.label} · ${sections}`;
 }
 
 /** Línea con el resultado de una acción decidida, armada por el código. */

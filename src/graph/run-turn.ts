@@ -4,6 +4,8 @@ import type { ApprovalRequest, HumanDecision } from "./approval.js";
 import type { Agent } from "./create-agent.js";
 import type { Intent } from "./intents.js";
 import { AGENT_RECURSION_LIMIT } from "./limits.js";
+import { sectionStatus } from "./report/render.js";
+import type { Section } from "./report/state.js";
 import { parseThreadId } from "./thread-id.js";
 import { getStatus } from "./threads.js";
 import { summarizeTurn, type TurnSummary } from "./usage.js";
@@ -17,6 +19,8 @@ export interface TurnResult {
   summary: TurnSummary;
   /** El grafo se pausó: hay una acción propuesta esperando la decisión (`resumeTurn`). */
   awaiting?: ApprovalRequest;
+  /** Si el turno fue un reporte: el período y cómo salió cada sección. */
+  report?: { label: string; notice?: string; sections: Record<Section, "ok" | "error" | "missing"> };
 }
 
 /** Lo mínimo que hace falta del agente: el grafo con checkpointer. Los tests pasan grafos propios. */
@@ -47,6 +51,16 @@ async function invokeTurn(agent: TurnAgent, threadId: string, input: TurnInput, 
     route: { intent: state.intent, reason: state.intentReason },
     summary: summarizeTurn(messages.slice(already), tracker.usage()),
     ...(awaiting && { awaiting }),
+    // `state.report` queda en el hilo después de un reporte: solo cuenta si ESTE turno fue un reporte.
+    ...(state.intent === "report" && state.report
+      ? {
+          report: {
+            label: state.report.label,
+            ...(state.report.notice && { notice: state.report.notice }),
+            sections: sectionStatus(state.report, state.reportParts),
+          },
+        }
+      : {}),
   };
 }
 

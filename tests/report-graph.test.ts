@@ -100,6 +100,20 @@ describe("CA1: las tres secciones corren a la vez", () => {
     expect(history.at(-1)!.next).toEqual([]);
   });
 
+  it("runTurn informa el período y el estado de cada sección; un turno que no es un reporte no lo informa", async () => {
+    const saver = new MemorySaver();
+    const t = setup({ fail: ["stock"], checkpointer: saver });
+    const turn = await runTurn({ graph: t.graph }, "hilo-reporte", "Armame el resumen de la semana.");
+    expect(turn.route.intent).toBe("report");
+    expect(turn.report).toEqual({ label: "semana del 26/10 al 01/11", sections: { sales: "ok", appointments: "ok", stock: "error" } });
+    expect(turn.summary.toolCalls).toEqual([]);
+
+    // Un turno de charla en el mismo hilo ya no trae reporte, aunque el estado todavía lo guarde.
+    const chatGraph = buildTestGraph({ model: echoModel().model, tools: [], intent: "chat", checkpointer: saver });
+    const chat = await runTurn({ graph: chatGraph }, "hilo-reporte", "gracias");
+    expect(chat.report).toBeUndefined();
+  });
+
   it("compose_report corre exactamente una vez, después de las tres", async () => {
     const t = setup({ delayMs: 20 });
     const order: string[] = [];

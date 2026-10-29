@@ -3,6 +3,7 @@ import {
   describeActionResult,
   describeCard,
   describeCheckpoint,
+  describeReportStatus,
   describeThread,
   formatWhen,
   looksLikeEdit,
@@ -58,6 +59,31 @@ describe("tarjeta de aprobación", () => {
   it("el resultado de la acción marca éxito o fallo", () => {
     expect(describeActionResult({ tool: "cancelAppointment", ok: true, message: "Turno #7 cancelado." })).toBe("  [acción] ✔ Turno #7 cancelado.");
     expect(describeActionResult({ tool: "adjustStock", ok: false, message: "No se pudo." })).toContain("✖");
+  });
+});
+
+describe("describeReportStatus", () => {
+  it("muestra el período y el estado de cada sección", () => {
+    expect(describeReportStatus({ label: "semana del 26/10 al 01/11", sections: { sales: "ok", appointments: "ok", stock: "ok" } })).toBe(
+      "[reporte] semana del 26/10 al 01/11 · ventas ✔ · turnos ✔ · stock ✔",
+    );
+    expect(describeReportStatus({ label: "octubre de 2026", sections: { sales: "ok", appointments: "error", stock: "missing" } })).toBe(
+      "[reporte] octubre de 2026 · ventas ✔ · turnos ✖ · stock ✖",
+    );
+  });
+
+  it("en la historia de checkpoints las tres secciones aparecen juntas en un mismo paso", () => {
+    const line = describeCheckpoint({
+      checkpointId: "1f1d328b-e3b8",
+      source: "loop",
+      step: 4,
+      ranNodes: ["report_appointments", "report_sales", "report_stock"],
+      next: ["compose_report"],
+      messageCount: 1,
+      intent: "report",
+    });
+    expect(line).toContain("corrió report_appointments+report_sales+report_stock");
+    expect(line).toContain("sigue compose_report");
   });
 });
 
