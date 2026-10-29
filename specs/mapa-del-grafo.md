@@ -12,8 +12,11 @@ Convención de los diagramas: **línea continua** = arista fija (siempre ocurre)
 | 2 | 2 (`agent`, `tools`) | 2 | 2 | 4 | `messages` | Herramientas de lectura y el ciclo `agent ↔ tools` |
 | 3 | 7 (`router`, `agent`, `tools`, `chat`, `action_stub`, `report_stub`, `clarify`) | 6 | 7 | 13 | `messages`, `intent`, `intentReason` | Router de intención y cinco ramas |
 | 4 | 7 (los mismos) | 6 | 7 | 13 | `messages`, `intent`, `intentReason` | Checkpointer de Postgres: el estado se guarda por `thread_id` (cambia cómo se compila, no la forma del grafo) |
+| 5 | 10 (`router`, `agent`, `tools`, `chat`, `report_stub`, `clarify`, `action_agent`, `propose_action`, `await_approval`, `execute_action`) | 5 | 16 | 21 | `messages`, `intent`, `intentReason`, `pendingAction`, `approval` | Acciones con aprobación humana: `interrupt`, `Command({ resume })`, rol de escritura acotado y auditoría |
 
 Qué cambió de la fase 1 a la 2: el nodo `chat` pasó a llamarse `agent` y ahora puede pedir herramientas; apareció el nodo `tools`; la arista `chat → END` se volvió condicional (`agent → END` solo si no hay llamadas pendientes) y se sumó `tools → agent`, que cierra el ciclo.
+
+Qué cambió de la fase 4 a la 5: el marcador `action_stub` se reemplazó por una rama real de cuatro nodos que **pausa el grafo** antes de escribir. La arista `tools → agent` dejó de ser fija: ahora vuelve al agente que preguntó (el de consultas o el de acciones). Se sumaron dos campos al estado.
 
 Qué cambió de la fase 3 a la 4: nada en nodos ni aristas. El grafo se compila con un checkpointer; por eso la terminal ya no guarda el historial y el estado sobrevive al cierre del programa.
 
@@ -184,10 +187,71 @@ flowchart TD
 
 ---
 
+## Fase 5: aprobación humana antes de escribir (`fase-05`)
+
+```mermaid
+flowchart TD
+    S((START)) -->|"fija"| R["router"]
+    R -.->|"query"| A["agent"]
+    A -.->|"pidió consultas"| T["tools<br/>ToolNode: solo consultas"]
+    T -.->|"intent query"| A
+    A -.->|"respuesta final"| E((END))
+    R -.->|"chat"| C["chat"]
+    R -.->|"report"| RS["report_stub"]
+    R -.->|"unclear"| CL["clarify"]
+    C --> E
+    RS --> E
+    CL --> E
+    R -.->|"action"| AA["action_agent<br/>consultas + definiciones de acciones"]
+    AA -.->|"pidió consultas"| T
+    T -.->|"intent action"| AA
+    AA -.->|"sin llamadas"| E
+    AA -.->|"pidió una acción"| P["propose_action<br/>valida y arma el resumen"]
+    P -.->|"inválida: error al modelo"| AA
+    P -.->|"válida"| W["await_approval<br/>interrupt: PAUSA"]
+    W -.->|"decisión inválida"| W
+    W -.->|"aprobar · rechazar · editar"| X["execute_action<br/>único nodo que escribe"]
+    X -->|"fija: el resultado vuelve al modelo"| AA
+    X -. "efecto + action_log, una transacción" .-> DB[("Postgres<br/>rol copilot_actions")]
+```
+
+**Resumen:** 10 nodos propios (`action_stub` desapareció; se sumaron `action_agent`, `propose_action`, `await_approval` y `execute_action`), 2 nodos especiales, 5 aristas fijas y 16 condicionales: **21 conexiones** (comprobado con `getGraphAsync()`). Sale de seis decisiones: `routeByIntent` (5 destinos), `routeAfterAgent` (2), `routeAfterTools` (2), `routeAfterActionAgent` (3), `routeAfterPropose` (2) y `routeAfterApproval` (2). El estado suma `pendingAction` y `approval`.
+
+| Nodo | Quién lo escribió | Qué hace | Modelo | Escribe en el estado |
+| --- | --- | --- | --- | --- |
+| `action_agent` | Nosotros (`nodes/action-agent.ts`) | Prompt de acciones con la fecha; junta ids con las consultas y pide **una** acción | `MODEL_AGENT` con consultas + definiciones de las 4 acciones | 1 mensaje de IA |
+| `propose_action` | Nosotros (`nodes/actions.ts`) | Valida la acción con las reglas del negocio y arma el resumen y el riesgo **desde la base**; rechaza varias acciones juntas | ninguno | `pendingAction`, o mensajes de error de herramienta |
+| `await_approval` | Nosotros (`nodes/actions.ts`) | Llama a `interrupt`: el grafo se pausa hasta que llegue la decisión; la valida (estricta) y re-valida una edición | ninguno | `approval` |
+| `execute_action` | Nosotros (`nodes/actions.ts`) | Con una decisión vigente sobre **esa** acción, ejecuta (o registra el rechazo) en una transacción con la auditoría | ninguno | 1 mensaje de herramienta; `pendingAction` y `approval` a `null` |
+
+| # | Desde | Hasta | Tipo | Cómo se declara (`src/graph/index.ts`) |
+| --- | --- | --- | --- | --- |
+| 1 | `START` | `router` | Fija | `.addEdge(START, "router")` |
+| 2–6 | `router` | `agent`, `chat`, `action_agent`, `report_stub`, `clarify` | Condicional (`intent`) | `.addConditionalEdges("router", routeByIntent, [...])` |
+| 7–8 | `agent` | `tools`, `END` | Condicional | `routeAfterAgent` |
+| 9–10 | `tools` | `agent`, `action_agent` | Condicional (`intent`) | `routeAfterTools`: vuelve a quien preguntó |
+| 11–13 | `action_agent` | `tools`, `propose_action`, `END` | Condicional | `routeAfterActionAgent` |
+| 14–15 | `propose_action` | `await_approval`, `action_agent` | Condicional (`pendingAction`) | `routeAfterPropose` |
+| 16–17 | `await_approval` | `execute_action`, `await_approval` | Condicional (`approval.decision`) | `routeAfterApproval`: una decisión inválida vuelve a preguntar |
+| 18 | `execute_action` | `action_agent` | Fija | `.addEdge("execute_action", "action_agent")` |
+| 19–21 | `chat`, `report_stub`, `clarify` | `END` | Fijas | `.addEdge(…, END)` |
+
+| Situación | Camino | Notas |
+| --- | --- | --- |
+| Pedido claro de una acción | `START → router → action_agent → tools → action_agent → propose_action → await_approval` ⏸ | El grafo **se pausa**; la terminal muestra la tarjeta |
+| Aprobada, rechazada o editada | `await_approval → execute_action → action_agent → END` | Se retoma con `Command({ resume })`, incluso tras reiniciar el programa |
+| Falta un dato o hay varias opciones | `START → router → action_agent → END` | El agente hace una pregunta; no hay propuesta |
+| Propuesta inválida (turno que ya pasó, stock insuficiente…) | `action_agent → propose_action → action_agent` | El error vuelve al modelo como mensaje de herramienta |
+| Decisión mal formada o edición inválida | `await_approval → await_approval` | Se vuelve a preguntar con el motivo; no se ejecuta nada |
+| Varias acciones en un mensaje | `action_agent → propose_action → action_agent` | Todas las llamadas reciben el error; no se propone ninguna |
+
+**Qué NO existe:** ninguna arista lleva una acción a `tools`. Si el modelo la pidiera por otro camino, el único `ToolNode` solo responde «la herramienta no existe».
+
+---
+
 ## Próximas fases (planeado, aún no existe)
 
 | Fase | Cambio previsto en el grafo |
 | --- | --- |
-| 5 | Nodos para proponer la acción y esperar la aprobación humana (`interrupt`), más las herramientas de escritura |
 | 6 | Reportes en paralelo con `Send` (varios nodos a la vez que se juntan en uno) |
 | 7 | Los caminos pasan a ser subgrafos coordinados por un supervisor |

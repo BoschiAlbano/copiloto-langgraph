@@ -24,6 +24,21 @@ describe.skipIf(!hasDb)("prepareAction", () => {
       )
     ).rows[0] as { id: number; starts_at: Date; client: string; staff: string };
 
+  /**
+   * Un turno futuro que empieza en múltiplo de 15 minutos. La agenda sembrada encadena duraciones de 20, 45 y 90
+   * minutos, así que hay turnos que empiezan a las 10:20 o 11:05: la regla de los 15 minutos es para turnos NUEVOS.
+   */
+  const futureAlignedAppointment = async () =>
+    (
+      await ctx.sql.query(
+        `SELECT a.id, a.starts_at, s.name AS staff
+           FROM appointments a JOIN staff s ON s.id = a.staff_id
+          WHERE a.status = 'scheduled' AND a.starts_at > now() + interval '1 hour'
+            AND EXTRACT(minute FROM a.starts_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::int % 15 = 0
+          ORDER BY a.starts_at LIMIT 1`,
+      )
+    ).rows[0] as { id: number; starts_at: Date; staff: string };
+
   describe("createAppointment", () => {
     const base = async () => ({ clientId: (await firstClient()).id, staffName: "Lucas", serviceName: "Corte", date: monday.iso, time: "15:00" });
 
@@ -60,7 +75,7 @@ describe.skipIf(!hasDb)("prepareAction", () => {
     });
 
     it("avisa si el barbero ya tiene un turno a esa hora", async () => {
-      const taken = await futureAppointment();
+      const taken = await futureAlignedAppointment();
       const local = formatLocal(taken.starts_at);
       await rejects(
         "createAppointment",

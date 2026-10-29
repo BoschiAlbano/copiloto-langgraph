@@ -1,6 +1,8 @@
 import { loadEnv } from "../config/env.js";
 import { createAgent } from "../graph/create-agent.js";
-import { runTurn } from "../graph/run-turn.js";
+import pg from "pg";
+import { mondayInThreeWeeks } from "../../evals/action-cases.js";
+import { resumeTurn, runTurn } from "../graph/run-turn.js";
 import { newThreadId } from "../graph/thread-id.js";
 import { deleteThread } from "../graph/threads.js";
 import { costOfUsage, mergeUsage, totalUsage, type ModelUsage } from "../graph/usage-tracker.js";
@@ -31,19 +33,31 @@ const CASES: Case[] = [
     name: "Conversación de 3 mensajes",
     turns: ["¿Cuántos turnos hay mañana?", "¿Y pasado mañana?", "¿Cuál de los dos días tiene más turnos?"],
   },
-  { group: "extra", name: "Pedido de acción (marcador)", turns: ["Cancelá el turno de Facundo Sosa de hoy."] },
+  // Acciones: se pide, el copiloto propone y se RECHAZA (no se modifica ningún dato). Tiene las mismas llamadas al modelo
+  // que aprobar: en los dos casos el agente contesta una vez más después de la decisión.
+  { group: "extra", name: "Acción: ajustar stock (propuesta y rechazo)", turns: ["Sumá 20 unidades al stock de shampoo anticaspa."] },
+  {
+    group: "extra",
+    name: "Acción: agendar turno (propuesta y rechazo)",
+    turns: [`Agendá un corte para Julián Romero el ${mondayInThreeWeeks(new Date()).spoken} a las 15 con Lucas.`],
+  },
   { group: "extra", name: "Pedido de reporte (marcador)", turns: ["Armame el resumen de la semana."] },
   { group: "extra", name: "Pedido ambiguo (aclaración)", turns: ["Cancelalo."] },
 ];
 
+// `npm run bench -- --extra` mide solo las ramas nuevas (más barato, útil con Sonnet).
+const onlyExtra = process.argv.includes("--extra");
+const cases = onlyExtra ? CASES.filter((c) => c.group === "extra") : CASES;
+
 const env = loadEnv();
 const agent = createAgent(env);
 
+const benchThreads: string[] = [];
 const rows: Record<Case["group"], string[]> = { base: [], extra: [] };
 const usageByGroup: Record<Case["group"], ModelUsage[]> = { base: [], extra: [] };
 const costByGroup: Record<Case["group"], number> = { base: 0, extra: 0 };
 
-for (const testCase of CASES) {
+for (const testCase of cases) {
   const threadId = newThreadId();
   let usage: ModelUsage[] = [];
   const tools: string[] = [];
@@ -55,11 +69,18 @@ for (const testCase of CASES) {
       usage = mergeUsage(usage, turn.summary.usage);
       tools.push(...turn.summary.toolCalls.map((c) => c.name));
       if (turn.route.intent) routes.push(turn.route.intent);
+      if (turn.awaiting) {
+        // Se rechaza: tiene las mismas llamadas al modelo que aprobar (el agente contesta una vez más) y no toca datos.
+        const decided = await resumeTurn(agent, threadId, { decision: "reject", comment: "medición de costo" });
+        usage = mergeUsage(usage, decided.summary.usage);
+        tools.push(...decided.summary.toolCalls.map((c) => c.name));
+      }
     }
   } catch (e) {
     error = ` (ERROR: ${(e as Error).message})`;
   } finally {
     await deleteThread(agent.checkpointer, threadId); // la batería no deja hilos en la base
+    benchThreads.push(threadId);
   }
   const total = totalUsage(usage);
   const cost = costOfUsage(usage) ?? 0;
@@ -70,6 +91,14 @@ for (const testCase of CASES) {
   );
 }
 await agent.close();
+
+// Los rechazos dejan filas en la auditoría: la batería es de medición, no de uso, así que las borra (con el dueño).
+if (process.env.DATABASE_URL_WRITE) {
+  const owner = new pg.Client({ connectionString: process.env.DATABASE_URL_WRITE });
+  await owner.connect();
+  await owner.query(`DELETE FROM action_log WHERE thread_id = ANY($1)`, [benchThreads]);
+  await owner.end();
+}
 
 const header = [
   "| Caso | Ruta | Herramientas | Llamadas | Tokens entrada | Tokens salida | Costo US$ |",

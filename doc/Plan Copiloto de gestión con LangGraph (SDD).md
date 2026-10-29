@@ -118,7 +118,7 @@ El negocio de ejemplo necesita siete tablas propias más una de auditoría; las 
 
 **Datos de prueba.** Un script de seed genera unos 90 días de historial: turnos, ventas y movimientos de stock coherentes entre sí, para que los reportes tengan sentido.
 
-**Permisos.** Se crean dos roles de base de datos: uno de solo lectura para las herramientas de consulta y otro con permisos acotados de escritura que solo se usa después de una aprobación. Así, un error del modelo no puede borrar ni alterar datos fuera de lo permitido.
+**Permisos.** Se crean roles de base de datos distintos para cada cosa: uno de solo lectura para las herramientas de consulta (`copilot_reader`), otro con permisos acotados de escritura que solo se usa después de una aprobación (`copilot_actions`, fase 5: inserta turnos, ventas y renglones, cambia el estado de un turno y el stock de un producto, sin `DELETE` ni otros cambios, y con la auditoría de solo agregado) y uno para los hilos (`copilot_checkpointer`, fase 4). El dueño de la base solo se usa para migraciones, seed y tests. Así, un error del modelo no puede borrar ni alterar datos fuera de lo permitido.
 
 ## Estado del grafo y herramientas
 
@@ -129,8 +129,8 @@ El estado crece fase a fase: arranca con solo los mensajes y termina con nueve c
 | `messages` | Historial de la conversación | Se agregan mensajes nuevos | 1 |
 | `intent` | Consulta, acción, reporte, charla o aclaración (`unclear`) | Reemplaza el valor | 3 |
 | `intentReason` | Motivo que escribió el router (para mostrar la ruta y depurar) | Reemplaza el valor | 3 |
-| `pendingAction` | Acción propuesta: tipo, parámetros y riesgo | Reemplaza el valor | 5 |
-| `approval` | Aprobada, rechazada o editada, con comentario | Reemplaza el valor | 5 |
+| `pendingAction` | Acción propuesta: id, tipo, parámetros, riesgo y el resumen que arma el código | Reemplaza el valor (`null` cuando no hay ninguna) | 5 |
+| `approval` | Aprobada, rechazada o editada (o inválida, si hay que volver a preguntar), con comentario | Reemplaza el valor (`null` cuando no hay ninguna) | 5 |
 | `reportParts` | Secciones de un reporte armadas en paralelo | Se concatenan | 6 |
 | `activeAgent` | Agente que atiende el pedido | Reemplaza el valor | 7 |
 | `businessContext` | Reglas y preferencias leídas de la memoria | Reemplaza el valor | 8 |
@@ -348,7 +348,7 @@ La API Batch cobra la mitad en Sonnet 5.5 (1 y 5), útil para correr las evaluac
 | Pedido | Con Sonnet 5.5 | Con Haiku 5.5 |
 | --- | --- | --- |
 | Consulta típica (medido en la fase 3, con router) | US$ 0,014 | US$ 0,0009 |
-| Acción con aprobación | US$ 0,03 | US$ 0,0015 |
+| Acción con aprobación (medido en la fase 5) | US$ 0,032 | US$ 0,0019 |
 | Reporte en paralelo | US$ 0,08 | US$ 0,004 |
 | Set de evaluaciones (30 casos) | US$ 0,90 | US$ 0,05 |
 
@@ -363,7 +363,7 @@ La API Batch cobra la mitad en Sonnet 5.5 (1 y 5), útil para correr las evaluac
 
 **Notas**
 
-- Salvo la consulta típica, medida en las fases 2 y 3 (ver sus specs), son estimaciones propias, no mediciones. Con Sonnet como agente el costo medido es ~30 % menor que el estimado y el router de Haiku agrega solo ~US$ 0,0002 por turno (~1,5 %). Con Haiku como agente el router sí pesa (+30 %), porque el agente ya era muy barato. Se vuelve a medir en las fases 5 y 6: las herramientas de escritura suman costo fijo por llamada.
+- Salvo la consulta típica, medida en las fases 2 y 3 (ver sus specs), son estimaciones propias, no mediciones. Con Sonnet como agente el costo medido es ~30 % menor que el estimado y el router de Haiku agrega solo ~US$ 0,0002 por turno (~1,5 %). Con Haiku como agente el router sí pesa (+30 %), porque el agente ya era muy barato. La acción con aprobación se midió en la fase 5 (una consulta previa, la propuesta y la respuesta tras la decisión: 4 llamadas y ~4.100 tokens de entrada por llamada, porque cada una lleva el prompt de acciones y las 8 definiciones de herramientas): +27 % con Haiku y +8 % con Sonnet respecto de la estimación. El reporte en paralelo se mide en la fase 6.
 - Los precios salen de páginas que reproducen la documentación oficial; confirmalos en la consola antes de cargar crédito.
 - El gasto de la IA con la que programás (el desarrollo con SDD) es aparte y depende de la herramienta y el plan que uses.
 - Todo lo demás corre en local (Supabase, grafo y app web), así que la API de Claude es el único gasto del proyecto.
@@ -396,7 +396,7 @@ copiloto-langgraph/
 
 - **Idiomas:** código e identificadores en inglés; specs, comentarios y respuestas del copiloto en español, con montos en pesos argentinos.
 - **Git:** una rama por fase, un commit por tarea y una etiqueta al cerrar la fase.
-- **Variables de entorno:** `ANTHROPIC_API_KEY`, una cadena de conexión de solo lectura, otra para escritura. Solo `.env.example` se versiona.
+- **Variables de entorno:** `ANTHROPIC_API_KEY`, los modelos, y una cadena de conexión por rol: lectura (`DATABASE_URL_READ`), acciones aprobadas (`DATABASE_URL_ACTIONS`), hilos (`DATABASE_URL_CHECKPOINTS`) y la del dueño para migraciones, seed y tests (`DATABASE_URL_WRITE`, que la aplicación no usa). Solo `.env.example` se versiona.
 - **Modelos configurables:** el modelo de cada rol (router, agentes, reportes) se define por variable de entorno, para cambiarlo sin tocar código.
 - **Prompts:** viven en archivos propios y versionados, no dentro de las funciones.
 - **Terminal:** todos los comandos del proyecto se documentan para PowerShell, con Docker Desktop y WSL2 activos para Supabase local.
