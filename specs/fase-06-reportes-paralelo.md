@@ -41,7 +41,7 @@ Qué se necesita de tu parte: nada. Las pruebas con el modelo real cuestan centa
 - R13: Variable nueva `MODEL_REPORT` (por defecto `claude-haiku-5-5`) en el esquema de entorno, `.env.example` y README. Prompts en archivos propios: `report-plan.md` y `report.md`.
 
 ## Escenarios con el modelo real (congelados)
-Se guardan en `evals/report-cases.ts` **antes** de escribir los prompts. Se evalúa el planificador con un reloj fijo, **martes 28 de octubre de 2026** (así el resultado esperado es siempre el mismo).
+Se guardan en `evals/report-cases.ts` **antes** de escribir los prompts. Se evalúa el planificador con un reloj fijo, **miércoles 28 de octubre de 2026** (así el resultado esperado es siempre el mismo).
 
 | # | Pedido | Período esperado |
 | --- | --- | --- |

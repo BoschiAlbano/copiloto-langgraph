@@ -2,7 +2,7 @@
 // prompts del planificador y de la «Lectura», y ninguna de estas frases aparece en ellos (lo verifica un test).
 // Se evalúa el planificador con un reloj fijo, así el resultado esperado es siempre el mismo.
 
-/** Martes 28 de octubre de 2026, 12:00 en Argentina. */
+/** Miércoles 28 de octubre de 2026, 12:00 en Argentina. */
 export const REPORT_NOW = new Date("2026-10-28T15:00:00Z");
 
 export interface ReportCase {
