@@ -3,6 +3,7 @@ import { INTENTS, type Intent } from "../src/graph/intents.js";
 import type { AgentModel } from "../src/graph/nodes/agent.js";
 import { makeClarifyNode } from "../src/graph/nodes/clarify.js";
 import { makeRouterNode, ROUTER_FALLBACK_REASON, type RouterModel } from "../src/graph/nodes/router.js";
+import { makeState } from "../src/graph/state.js";
 import { ROUTER_CASES, type RouterCase } from "./router-cases.js";
 
 export type Actual = Intent | "invalid";
@@ -27,7 +28,7 @@ export async function evaluateRouter(router: RouterModel, cases: RouterCase[] = 
   const node = makeRouterNode(router, { warn: () => {} });
   const results: CaseResult[] = [];
   for (const c of cases) {
-    const update = await node({ messages: caseMessages(c), intent: undefined, intentReason: undefined });
+    const update = await node(makeState(caseMessages(c)));
     const invalid = update.intentReason === ROUTER_FALLBACK_REASON;
     const actual: Actual = invalid ? "invalid" : update.intent;
     results.push({ case: c, actual, reason: update.intentReason ?? "", ok: actual === c.expected });
@@ -46,7 +47,7 @@ export async function evaluateClarifications(clarify: AgentModel, cases: RouterC
   const node = makeClarifyNode(clarify);
   const results: ClarifyResult[] = [];
   for (const c of cases.filter((x) => x.set === "B")) {
-    const { messages } = await node({ messages: caseMessages(c), intent: undefined, intentReason: undefined });
+    const { messages } = await node(makeState(caseMessages(c)));
     const question = messages[0]?.text.trim() ?? "";
     results.push({ caseId: c.id, question, isQuestion: question.endsWith("?") });
   }

@@ -8,6 +8,7 @@ import { AGENT_RECURSION_LIMIT } from "../src/graph/limits.js";
 import { ACTION_STUB_MESSAGE, REPORT_STUB_MESSAGE } from "../src/graph/messages.js";
 import type { AgentModel } from "../src/graph/nodes/agent.js";
 import type { RouterModel } from "../src/graph/nodes/router.js";
+import { makeState } from "../src/graph/state.js";
 
 /** Modelo de texto falso: contesta con un texto fijo y cuenta las llamadas. */
 function textModel(text: string) {
@@ -157,7 +158,7 @@ describe("fallas del router (CA7)", () => {
 
 describe("routeByIntent", () => {
   it("cubre las cinco intenciones y usa la rama de solo lectura si falta", () => {
-    const at = (intent: Intent | undefined) => routeByIntent({ messages: [], intent, intentReason: undefined });
+    const at = (intent: Intent | undefined) => routeByIntent(makeState([], { intent }));
     expect(INTENTS.map(at)).toEqual(["agent", "action_stub", "report_stub", "chat", "clarify"]);
     expect(at(undefined)).toBe("agent");
   });

@@ -6,6 +6,7 @@ import type { AgentModel } from "../src/graph/nodes/agent.js";
 import { makeChatNode } from "../src/graph/nodes/chat.js";
 import { makeClarifyNode } from "../src/graph/nodes/clarify.js";
 import { actionStubNode, reportStubNode } from "../src/graph/nodes/stubs.js";
+import { makeState } from "../src/graph/state.js";
 
 function fakeModel(reply: string) {
   const calls: BaseMessage[][] = [];
@@ -18,7 +19,7 @@ function fakeModel(reply: string) {
   return { model, calls };
 }
 
-const state = (messages: BaseMessage[]) => ({ messages, intent: undefined, intentReason: undefined });
+const state = (messages: BaseMessage[]) => makeState(messages);
 
 describe("nodo chat", () => {
   it("responde con su propio prompt y el historial, y devuelve solo el mensaje nuevo", async () => {

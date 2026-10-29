@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ROUTER_CASES } from "../evals/router-cases.js";
 import { INTENTS } from "../src/graph/intents.js";
 import { makeRouterNode, ROUTER_FALLBACK_REASON, type RouterModel } from "../src/graph/nodes/router.js";
+import { makeState } from "../src/graph/state.js";
 
 /** Modelo del router falso: devuelve lo que se le indique y guarda lo que recibió. */
 function fakeRouter(result: unknown) {
@@ -17,7 +18,7 @@ function fakeRouter(result: unknown) {
   return { model, calls };
 }
 
-const state = (messages: BaseMessage[]) => ({ messages, intent: undefined, intentReason: undefined });
+const state = (messages: BaseMessage[]) => makeState(messages);
 
 describe("nodo router", () => {
   it("escribe intent e intentReason a partir de la salida estructurada", async () => {
