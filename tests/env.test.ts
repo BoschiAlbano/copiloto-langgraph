@@ -5,6 +5,7 @@ const valid = {
   ANTHROPIC_API_KEY: "sk-test",
   DATABASE_URL_READ: "postgresql://u:p@localhost:5432/postgres",
   DATABASE_URL_CHECKPOINTS: "postgresql://c:p@localhost:5432/postgres",
+  DATABASE_URL_ACTIONS: "postgresql://a:p@localhost:5432/postgres",
 };
 
 describe("parseEnv", () => {
@@ -23,8 +24,15 @@ describe("parseEnv", () => {
     expect(() => parseEnv(rest)).toThrow(/DATABASE_URL_CHECKPOINTS/);
   });
 
+  it("falla nombrando DATABASE_URL_ACTIONS cuando falta", () => {
+    const { DATABASE_URL_ACTIONS: _, ...rest } = valid;
+    expect(() => parseEnv(rest)).toThrow(/DATABASE_URL_ACTIONS/);
+  });
+
   it("nombra todas las variables que faltan", () => {
-    expect(() => parseEnv({})).toThrow(/ANTHROPIC_API_KEY.*DATABASE_URL_READ.*DATABASE_URL_CHECKPOINTS/);
+    expect(() => parseEnv({})).toThrow(
+      /ANTHROPIC_API_KEY.*DATABASE_URL_READ.*DATABASE_URL_CHECKPOINTS.*DATABASE_URL_ACTIONS/,
+    );
   });
 
   it("rechaza una clave vacía", () => {

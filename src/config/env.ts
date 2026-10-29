@@ -10,6 +10,8 @@ const envSchema = z.object({
   DATABASE_URL_READ: z.string().min(1),
   // Rol copilot_checkpointer: guarda y lee los hilos de conversación, nada más.
   DATABASE_URL_CHECKPOINTS: z.string().min(1),
+  // Rol copilot_actions: el único que escribe datos del negocio, y solo después de una aprobación.
+  DATABASE_URL_ACTIONS: z.string().min(1),
 });
 
 export type Env = z.infer<typeof envSchema>;

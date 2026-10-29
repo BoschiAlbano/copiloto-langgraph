@@ -8,7 +8,8 @@
   },
   "scripts": {
     "chat": "tsx src/cli/chat.ts",
-    "test": "vitest run",
+    "test": "vitest run && vitest run --config vitest.writes.config.ts",
+    "test:writes": "vitest run --config vitest.writes.config.ts",
     "typecheck": "tsc --noEmit",
     "threads": "tsx src/cli/threads.ts",
     "bench": "tsx src/cli/bench.ts",
