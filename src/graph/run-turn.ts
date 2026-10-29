@@ -1,16 +1,22 @@
 import { HumanMessage, type BaseMessage } from "@langchain/core/messages";
+import { Command } from "@langchain/langgraph";
+import type { ApprovalRequest, HumanDecision } from "./approval.js";
 import type { Agent } from "./create-agent.js";
 import type { Intent } from "./intents.js";
 import { AGENT_RECURSION_LIMIT } from "./limits.js";
 import { parseThreadId } from "./thread-id.js";
+import { getStatus } from "./threads.js";
 import { summarizeTurn, type TurnSummary } from "./usage.js";
 import { UsageTracker } from "./usage-tracker.js";
 
 export interface TurnResult {
+  /** Respuesta final. Vacía si el turno quedó esperando una aprobación (ahí manda `awaiting`). */
   reply: string;
   /** Ruta que eligió el router y por qué. */
   route: { intent?: Intent; reason?: string };
   summary: TurnSummary;
+  /** El grafo se pausó: hay una acción propuesta esperando la decisión (`resumeTurn`). */
+  awaiting?: ApprovalRequest;
 }
 
 /** Lo mínimo que hace falta del agente: el grafo con checkpointer. Los tests pasan grafos propios. */
@@ -22,47 +28,89 @@ export function messagesOfTurn(messages: BaseMessage[]): BaseMessage[] {
   return messages.slice(lastHuman + 1);
 }
 
-async function invokeTurn(agent: TurnAgent, threadId: string, input: { messages: HumanMessage[] } | null) {
+type TurnInput = { messages: HumanMessage[] } | Command | null;
+
+async function invokeTurn(agent: TurnAgent, threadId: string, input: TurnInput): Promise<TurnResult> {
   const tracker = new UsageTracker();
-  const state = await agent.graph.invoke(input, {
+  // El tipo de `Command` del grafo compilado exige los nombres de nodo exactos; acá solo se usa `resume`.
+  const state = await agent.graph.invoke(input as never, {
     configurable: { thread_id: parseThreadId(threadId) },
     recursionLimit: AGENT_RECURSION_LIMIT,
     callbacks: [tracker],
   });
   const messages: BaseMessage[] = state.messages;
+  // Cuando el grafo se pausa, `invoke` devuelve el estado hasta ahí más `__interrupt__` con lo que pidió `interrupt`.
+  const interrupts = (state as { __interrupt__?: { value: unknown }[] }).__interrupt__;
+  const awaiting = interrupts?.map((i) => i.value as ApprovalRequest).find((v) => v?.kind === "approve_action");
   return {
-    reply: messages.at(-1)?.text ?? "",
+    // El texto del modelo que acompaña a una acción propuesta no se muestra como respuesta: manda la tarjeta.
+    reply: awaiting ? "" : (messages.at(-1)?.text ?? ""),
     route: { intent: state.intent, reason: state.intentReason },
     summary: summarizeTurn(messagesOfTurn(messages), tracker.usage()),
-  } satisfies TurnResult;
+    ...(awaiting && { awaiting }),
+  };
+}
+
+/** El hilo quedó a medias por una falla: hay que reanudarlo con `continueTurn` antes de seguir conversando. */
+export class ThreadPendingError extends Error {
+  constructor(
+    readonly threadId: string,
+    readonly next: string[],
+    message = `El hilo ${threadId} quedó a medias (falta correr: ${next.join(", ")}). Reanudalo antes de mandar otro mensaje.`,
+  ) {
+    super(message);
+    this.name = "ThreadPendingError";
+  }
+}
+
+/** El hilo espera la decisión de la persona sobre una acción: hay que resolverla con `resumeTurn`. */
+export class ThreadAwaitingApprovalError extends ThreadPendingError {
+  constructor(
+    threadId: string,
+    readonly request: ApprovalRequest,
+  ) {
+    super(threadId, ["await_approval"], `El hilo ${threadId} espera tu decisión sobre una acción: ${request.action.summary}`);
+    this.name = "ThreadAwaitingApprovalError";
+  }
 }
 
 /**
  * Un turno de conversación: mensaje de la persona → respuesta final, con la ruta y el uso.
  * Se manda solo el mensaje nuevo: el historial lo pone el checkpointer a partir del `threadId`.
+ * Si el modelo pide una acción, el turno termina pausado y el resultado trae `awaiting`.
  */
 export async function runTurn(agent: TurnAgent, threadId: string, input: string): Promise<TurnResult> {
   // Detrás de una llamada a herramienta sin respuesta, un mensaje nuevo rompe la API de Claude.
-  const status = await agent.graph.getState({ configurable: { thread_id: parseThreadId(threadId) } });
-  if (status.next.length > 0) throw new ThreadPendingError(threadId, status.next);
+  const status = await getStatus(agent.graph, threadId);
+  if (status.awaiting) throw new ThreadAwaitingApprovalError(threadId, status.awaiting);
+  if (status.pending) throw new ThreadPendingError(threadId, status.next);
   return invokeTurn(agent, threadId, { messages: [new HumanMessage(input)] });
 }
 
-/** El hilo quedó a medias: hay que reanudarlo con `continueTurn` antes de seguir conversando. */
-export class ThreadPendingError extends Error {
-  constructor(
-    readonly threadId: string,
-    readonly next: string[],
-  ) {
-    super(`El hilo ${threadId} quedó a medias (falta correr: ${next.join(", ")}). Reanudalo antes de mandar otro mensaje.`);
-    this.name = "ThreadPendingError";
+/**
+ * Reanuda un turno que quedó a medias por una falla, desde su último checkpoint. No repite el mensaje de la
+ * persona: `invoke(null)` significa "seguí donde quedaste". El uso informado es solo el de esta reanudación.
+ */
+export async function continueTurn(agent: TurnAgent, threadId: string): Promise<TurnResult> {
+  const status = await getStatus(agent.graph, threadId);
+  if (status.awaiting) throw new ThreadAwaitingApprovalError(threadId, status.awaiting);
+  return invokeTurn(agent, threadId, null);
+}
+
+/** Se intentó decidir sobre un hilo que no espera ninguna decisión. */
+export class NothingToDecideError extends Error {
+  constructor(threadId: string) {
+    super(`El hilo ${threadId} no está esperando ninguna decisión.`);
+    this.name = "NothingToDecideError";
   }
 }
 
 /**
- * Reanuda un turno que quedó a medias desde su último checkpoint. No repite el mensaje de la
- * persona: `invoke(null)` significa "seguí donde quedaste". El uso informado es solo el de esta reanudación.
+ * Entrega la decisión de la persona (aprobar, rechazar o editar) a un hilo pausado y lo reanuda. Una decisión
+ * mal formada no ejecuta nada: el grafo vuelve a preguntar y el resultado trae `awaiting` con el motivo.
  */
-export function continueTurn(agent: TurnAgent, threadId: string): Promise<TurnResult> {
-  return invokeTurn(agent, threadId, null);
+export async function resumeTurn(agent: TurnAgent, threadId: string, decision: HumanDecision): Promise<TurnResult> {
+  const status = await getStatus(agent.graph, threadId);
+  if (!status.awaiting) throw new NothingToDecideError(threadId);
+  return invokeTurn(agent, threadId, new Command({ resume: decision }));
 }

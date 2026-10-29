@@ -29,7 +29,7 @@ export function formatWhen(date: Date | string | undefined): string {
 
 /** Una línea por hilo para `npm run threads`. */
 export function describeThread(t: ThreadSummary): string {
-  const flag = t.pending ? " ⚠ a medias" : "";
+  const flag = t.awaiting ? " ⏸ espera tu aprobación" : t.pending ? " ⚠ a medias" : "";
   return `${t.threadId.padEnd(14)} ${formatWhen(t.lastActivity)}  ${String(t.messageCount).padStart(3)} msj  "${t.firstMessage}"${flag}`;
 }
 

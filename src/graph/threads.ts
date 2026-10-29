@@ -1,13 +1,20 @@
 import { AIMessage, HumanMessage, type BaseMessage } from "@langchain/core/messages";
 import type { BaseCheckpointSaver } from "@langchain/langgraph";
 import type { Pool } from "pg";
+import type { Approval, ApprovalRequest, PendingAction } from "./approval.js";
 import { CHECKPOINT_SCHEMA } from "./checkpointing.js";
 import type { Intent } from "./intents.js";
 import { parseThreadId } from "./thread-id.js";
 
 /** Lo mínimo que se le pide al grafo compilado: leer su estado guardado. */
 export interface Snapshot {
-  values: { messages?: BaseMessage[]; intent?: Intent; intentReason?: string };
+  values: {
+    messages?: BaseMessage[];
+    intent?: Intent;
+    intentReason?: string;
+    pendingAction?: PendingAction | null;
+    approval?: Approval | null;
+  };
   /** Nodos que correrían a continuación; vacío si el turno terminó. */
   next: string[];
   config: { configurable?: Record<string, unknown> };
@@ -30,11 +37,16 @@ export function conversationMessages(messages: BaseMessage[] = []): BaseMessage[
   );
 }
 
+/** Nodo donde el grafo se pausa a esperar la decisión de la persona. */
+export const APPROVAL_NODE = "await_approval";
+
 export interface ThreadStatus {
   /** ¿Hay algo guardado para este hilo? */
   exists: boolean;
-  /** Quedó a medias: hay nodos pendientes (se cortó antes de llegar a END). */
+  /** Quedó a medias POR UNA FALLA: hay nodos pendientes y no es una espera de aprobación. Se reanuda con `continueTurn`. */
   pending: boolean;
+  /** Espera la decisión de la persona sobre una acción propuesta. Se reanuda con `resumeTurn`. */
+  awaiting?: ApprovalRequest;
   next: string[];
   messages: BaseMessage[];
 }
@@ -42,9 +54,22 @@ export interface ThreadStatus {
 /** Estado actual de un hilo, a partir de su último checkpoint. */
 export async function getStatus(graph: ThreadGraph, threadId: string): Promise<ThreadStatus> {
   const snapshot = await graph.getState({ configurable: { thread_id: parseThreadId(threadId) } });
+  const action = snapshot.values.pendingAction;
+  // La tarjeta se reconstruye del estado guardado (no del resultado de un `invoke`): así se puede mostrar tras reiniciar.
+  const awaiting: ApprovalRequest | undefined =
+    snapshot.next.includes(APPROVAL_NODE) && action
+      ? {
+          kind: "approve_action",
+          action,
+          ...(snapshot.values.approval?.decision === "invalid" && snapshot.values.approval.error
+            ? { error: snapshot.values.approval.error }
+            : {}),
+        }
+      : undefined;
   return {
     exists: snapshot.config.configurable?.checkpoint_id !== undefined,
-    pending: snapshot.next.length > 0,
+    pending: snapshot.next.length > 0 && !awaiting,
+    ...(awaiting && { awaiting }),
     next: snapshot.next,
     messages: snapshot.values.messages ?? [],
   };
@@ -58,7 +83,10 @@ export interface ThreadSummary {
   messageCount: number;
   /** Lo primero que dijo la persona, recortado. */
   firstMessage: string;
+  /** Quedó a medias por una falla. */
   pending: boolean;
+  /** Espera la aprobación de una acción. */
+  awaiting: boolean;
 }
 
 function clip(text: string, max: number) {
@@ -96,6 +124,7 @@ export async function listThreads(
         messageCount: conversation.length,
         firstMessage: first ? clip(first.text, FIRST_MESSAGE_CHARS) : "",
         pending: status.pending,
+        awaiting: Boolean(status.awaiting),
       };
     }),
   );

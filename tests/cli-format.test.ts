@@ -18,6 +18,7 @@ describe("describeThread", () => {
     messageCount: 4,
     firstMessage: "¿Cuántos turnos hay mañana?",
     pending: false,
+    awaiting: false,
   };
   it("incluye id, mensajes y primer mensaje", () => {
     const line = describeThread(base);
@@ -28,6 +29,11 @@ describe("describeThread", () => {
   });
   it("marca los hilos a medias", () => {
     expect(describeThread({ ...base, pending: true })).toContain("⚠ a medias");
+  });
+  it("marca los hilos que esperan una aprobación", () => {
+    const line = describeThread({ ...base, awaiting: true });
+    expect(line).toContain("⏸ espera tu aprobación");
+    expect(line).not.toContain("a medias");
   });
 });
 

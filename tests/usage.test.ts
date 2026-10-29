@@ -93,10 +93,29 @@ describe("summarizeTurn", () => {
     expect(summary).toEqual({
       modelCalls: 3, // el router también cuenta aunque no deje mensajes
       toolCalls: [{ name: "listAppointments", args: { dateFrom: "2026-10-28" } }],
+      actions: [],
       inputTokens: 3300,
       outputTokens: 80,
       usage,
     });
+  });
+
+  it("separa las acciones decididas: el texto del código, no el del modelo", () => {
+    const summary = summarizeTurn(
+      [
+        new AIMessage({ content: "", tool_calls: [{ id: "1", name: "cancelAppointment", args: { appointmentId: 7 }, type: "tool_call" }] }),
+        new ToolMessage({ content: "Turno #7 cancelado.", tool_call_id: "1", name: "cancelAppointment" }),
+        new AIMessage({ content: "", tool_calls: [{ id: "2", name: "adjustStock", args: {}, type: "tool_call" }] }),
+        new ToolMessage({ content: "No se pudo.", tool_call_id: "2", name: "adjustStock", status: "error" }),
+        new ToolMessage({ content: "{}", tool_call_id: "3", name: "findClient" }), // una consulta no es una acción
+        new AIMessage("Listo."),
+      ],
+      [],
+    );
+    expect(summary.actions).toEqual([
+      { tool: "cancelAppointment", ok: true, message: "Turno #7 cancelado." },
+      { tool: "adjustStock", ok: false, message: "No se pudo." },
+    ]);
   });
 });
 
