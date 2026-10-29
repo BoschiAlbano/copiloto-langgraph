@@ -10,6 +10,20 @@ function dbCode(error: unknown): string | undefined {
 }
 
 /**
+ * Un error como texto para MOSTRAR a una persona (por ejemplo, en un reporte): los errores esperables (límites, datos
+ * inválidos) se informan tal cual; cualquier otro (la base caída, permisos, un bug) se informa con un texto genérico y
+ * su código, y el detalle va a la consola de quien opera el sistema.
+ */
+export function explainError(name: string, error: unknown): string {
+  if (error instanceof ToolUserError) return error.message;
+  if (error instanceof z.ZodError) return error.issues.map((i) => i.message).join("; ");
+  const detail = error instanceof Error ? error.message.trim() : String(error);
+  console.error(`[error en ${name}] ${detail}`);
+  const code = dbCode(error);
+  return `problema del sistema${code ? ` (código ${code})` : ""}`;
+}
+
+/**
  * Envuelve el cuerpo de una herramienta: devuelve el resultado como JSON y, ante un error
  * inesperado (caída de la base, permisos, bugs), le da al modelo un mensaje genérico en vez
  * del detalle interno. El detalle completo va a la consola de quien opera el sistema.
