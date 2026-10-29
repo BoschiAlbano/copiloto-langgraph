@@ -4,6 +4,7 @@ import { buildGraph } from "../../src/graph/index.js";
 import type { Intent } from "../../src/graph/intents.js";
 import type { AgentModel } from "../../src/graph/nodes/agent.js";
 import type { ActionRunner } from "../../src/graph/nodes/actions.js";
+import type { SectionRunner } from "../../src/graph/nodes/report.js";
 import type { RouterModel } from "../../src/graph/nodes/router.js";
 
 /** Router falso que siempre decide lo mismo (o una secuencia, una intención por llamada). */
@@ -30,6 +31,18 @@ export const unexpectedActions: ActionRunner = {
   },
 };
 
+/** Planificador de reportes que falla si un test que no lo espera llega a usarlo. */
+export const unexpectedPlan: RouterModel = {
+  async invoke() {
+    throw new Error("Este test no esperaba planificar un reporte.");
+  },
+};
+
+/** Secciones de reporte que fallan si un test que no las espera llega a usarlas. */
+export const unexpectedSections: SectionRunner = async () => {
+  throw new Error("Este test no esperaba correr una sección de reporte.");
+};
+
 /**
  * Grafo completo para tests: el router siempre elige `intent` y todas las ramas con modelo
  * usan `model` (la de acciones puede tener el suyo con `actionModel`). Los tests del camino de
@@ -40,6 +53,8 @@ export function buildTestGraph({
   actionModel,
   tools,
   actions = unexpectedActions,
+  reportPlan = unexpectedPlan,
+  reportSections = unexpectedSections,
   intent = "query",
   now,
   checkpointer,
@@ -48,14 +63,25 @@ export function buildTestGraph({
   actionModel?: AgentModel;
   tools: StructuredToolInterface[];
   actions?: ActionRunner;
+  reportPlan?: RouterModel;
+  reportSections?: SectionRunner;
   intent?: Intent | Intent[];
   now?: () => Date;
   checkpointer?: BaseCheckpointSaver;
 }) {
   return buildGraph({
-    models: { router: fixedRouter(intent).model, agent: model, action: actionModel ?? model, chat: model, clarify: model },
+    models: {
+      router: fixedRouter(intent).model,
+      agent: model,
+      action: actionModel ?? model,
+      chat: model,
+      clarify: model,
+      reportPlan,
+      report: model,
+    },
     tools,
     actions,
+    reportSections,
     now,
     checkpointer,
   });

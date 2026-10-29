@@ -5,7 +5,6 @@ import { describe, expect, it, vi } from "vitest";
 import { buildGraph, routeByIntent } from "../src/graph/index.js";
 import { INTENTS, type Intent } from "../src/graph/intents.js";
 import { AGENT_RECURSION_LIMIT } from "../src/graph/limits.js";
-import { REPORT_STUB_MESSAGE } from "../src/graph/messages.js";
 import type { AgentModel } from "../src/graph/nodes/agent.js";
 import type { RouterModel } from "../src/graph/nodes/router.js";
 import { makeState } from "../src/graph/state.js";
@@ -30,6 +29,13 @@ function scriptedRouter(outputs: unknown[]) {
   };
   return router satisfies RouterModel & { calls: number };
 }
+const emptySales = {
+  salesCount: 0,
+  totalRevenue: 0,
+  averageTicket: 0,
+  byPaymentMethod: [],
+  byItemType: { products: { units: 0, revenue: 0 }, services: { units: 0, revenue: 0 } },
+};
 const route = (intent: Intent) => ({ parsed: { reason: `motivo ${intent}`, intent } });
 
 let toolRuns = 0;
@@ -56,8 +62,20 @@ function setup(routerOutputs: unknown[], agentReplies?: AIMessage[] | ((callNumb
   };
   const action = textModel("respuesta del agente de acciones");
   const warn = vi.fn();
-  const graph = buildGraph({ models: { router, agent, action, chat, clarify }, tools: [getStock], actions: unexpectedActions, warn });
-  return { graph, router, agent, action, chat, clarify, warn };
+  const reportPlan = { calls: 0, async invoke() { reportPlan.calls++; return { parsed: { reason: "pide la semana", kind: "this_week" } }; } };
+  const report = textModel("Lectura de prueba");
+  const sections: string[] = [];
+  const graph = buildGraph({
+    models: { router, agent, action, chat, clarify, reportPlan, report },
+    tools: [getStock],
+    actions: unexpectedActions,
+    reportSections: async (section, reportId) => {
+      sections.push(section);
+      return { reportId, section, status: "ok", data: section === "sales" ? emptySales : section === "appointments" ? { total: 0, activeCount: 0, countByStatus: {} } : { total: 15, lowCount: 0, low: [] } };
+    },
+    warn,
+  });
+  return { graph, router, agent, action, chat, clarify, reportPlan, report, sections, warn };
 }
 
 /** Corre un turno y devuelve los nodos recorridos, en orden, y el estado final. */
@@ -78,7 +96,7 @@ describe("cada intención llega a su rama (CA5)", () => {
     query: ["router", "agent"],
     chat: ["router", "chat"],
     action: ["router", "action_agent"],
-    report: ["router", "report_stub"],
+    report: ["router", "plan_report", "report_appointments", "report_sales", "report_stock", "compose_report"],
     unclear: ["router", "clarify"],
   };
 
@@ -86,7 +104,10 @@ describe("cada intención llega a su rama (CA5)", () => {
     it(`${intent} → ${expectedPath[intent].join(" → ")}`, async () => {
       const t = setup([route(intent)]);
       const { path, state } = await runPath(t.graph, ask());
-      expect(path).toEqual(expectedPath[intent]);
+      // Las tres secciones del reporte corren en el mismo paso: su orden entre sí no está definido, por eso se ordenan.
+      const sectionNodes = path.filter((n) => n.startsWith("report_")).sort();
+      const comparable = intent === "report" ? [...path.filter((n) => !n.startsWith("report_")).slice(0, 2), ...sectionNodes, "compose_report"] : path;
+      expect(comparable).toEqual(expectedPath[intent]);
       expect(state.intent).toBe(intent);
       expect(state.intentReason).toBe(`motivo ${intent}`);
       expect(state.messages.at(-1)).toBeInstanceOf(AIMessage);
@@ -118,12 +139,15 @@ describe("solo se usa el modelo de la rama elegida", () => {
     expect(state.messages.at(-1)?.text).toBe("¿A qué turno te referís?");
   });
 
-  it("reporte: marcador con mensaje fijo, sin llamar a ningún modelo salvo el router (CA6)", async () => {
+  it("reporte: usa el planificador y la «Lectura», y ninguno de los modelos de las otras ramas", async () => {
     const t = setup([route("report")]);
-    const { state } = await runPath(t.graph, ask("pedido"));
-    expect(state.messages.at(-1)?.text).toBe(REPORT_STUB_MESSAGE);
-    expect(REPORT_STUB_MESSAGE).toContain("fase 6");
-    expect([t.router.calls, t.agent.calls, t.action.calls, t.chat.calls, t.clarify.calls]).toEqual([1, 0, 0, 0, 0]);
+    const { state, path } = await runPath(t.graph, ask("armame el resumen"));
+    expect(path[0]).toBe("router");
+    expect(path[1]).toBe("plan_report");
+    expect(path.at(-1)).toBe("compose_report");
+    expect(state.messages.at(-1)?.text).toContain("Reporte ·");
+    expect([t.router.calls, t.reportPlan.calls, t.report.calls]).toEqual([1, 1, 1]);
+    expect([t.agent.calls, t.action.calls, t.chat.calls, t.clarify.calls]).toEqual([0, 0, 0, 0]);
   });
 
   it("acción: usa solo el agente de acciones (y no el de consultas), y una respuesta sin llamadas termina el turno", async () => {
@@ -164,7 +188,7 @@ describe("fallas del router (CA7)", () => {
 describe("routeByIntent", () => {
   it("cubre las cinco intenciones y usa la rama de solo lectura si falta", () => {
     const at = (intent: Intent | undefined) => routeByIntent(makeState([], { intent }));
-    expect(INTENTS.map(at)).toEqual(["agent", "action_agent", "report_stub", "chat", "clarify"]);
+    expect(INTENTS.map(at)).toEqual(["agent", "action_agent", "plan_report", "chat", "clarify"]);
     expect(at(undefined)).toBe("agent");
   });
 });

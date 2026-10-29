@@ -1,11 +1,9 @@
 import { readFileSync } from "node:fs";
 import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
 import { describe, expect, it } from "vitest";
-import { REPORT_STUB_MESSAGE } from "../src/graph/messages.js";
 import type { AgentModel } from "../src/graph/nodes/agent.js";
 import { makeChatNode } from "../src/graph/nodes/chat.js";
 import { makeClarifyNode } from "../src/graph/nodes/clarify.js";
-import { reportStubNode } from "../src/graph/nodes/stubs.js";
 import { makeState } from "../src/graph/state.js";
 
 function fakeModel(reply: string) {
@@ -56,19 +54,5 @@ describe("nodo clarify", () => {
     expect(system!.text).toContain("UNA pregunta de aclaración");
     expect(human!.text).toContain("[persona] Cancelá el turno");
     expect(human!.text).not.toContain("secreto interno");
-  });
-});
-
-describe("marcador de reporte", () => {
-  it("responde con un mensaje fijo que dice en qué fase llega la función", async () => {
-    const report = await reportStubNode();
-    expect(report.messages).toHaveLength(1);
-    expect(report.messages[0]!.text).toBe(REPORT_STUB_MESSAGE);
-    expect(report.messages[0]!.text).toContain("fase 6");
-  });
-
-  it("no pide herramientas", async () => {
-    const [message] = (await reportStubNode()).messages;
-    expect((message as AIMessage).tool_calls ?? []).toEqual([]);
   });
 });

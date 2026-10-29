@@ -133,7 +133,6 @@ describe.skipIf(!checkpointsUrl)("persistencia de hilos", () => {
       ["chat", ["__start__", "router", "chat"]],
       ["unclear", ["__start__", "router", "clarify"]],
       ["action", ["__start__", "router", "action_agent"]],
-      ["report", ["__start__", "router", "report_stub"]],
     ];
     for (const [intent, expected] of paths) {
       it(`la ruta ${intent} deja un checkpoint por paso, con la secuencia de nodos esperada`, async () => {

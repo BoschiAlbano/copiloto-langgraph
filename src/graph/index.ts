@@ -10,15 +10,23 @@ import { makeAgentNode, type AgentModel } from "./nodes/agent.js";
 import { makeChatNode } from "./nodes/chat.js";
 import { makeClarifyNode } from "./nodes/clarify.js";
 import { makeRouterNode, type RouterModel } from "./nodes/router.js";
-import { reportStubNode } from "./nodes/stubs.js";
+import {
+  fanOutReport,
+  makeComposeReportNode,
+  makePlanReportNode,
+  makeSectionNode,
+  SECTION_NODES,
+  type PlanModel,
+  type SectionRunner,
+} from "./nodes/report.js";
 import { AgentState, type AgentStateType } from "./state.js";
 
 /** Nodo al que va cada intención. Al ser un Record<Intent, …>, TypeScript exige cubrirlas todas. */
-const ROUTES: Record<Intent, "agent" | "chat" | "action_agent" | "report_stub" | "clarify"> = {
+const ROUTES: Record<Intent, "agent" | "chat" | "action_agent" | "plan_report" | "clarify"> = {
   query: "agent",
   chat: "chat",
   action: "action_agent",
-  report: "report_stub",
+  report: "plan_report",
   unclear: "clarify",
 };
 
@@ -81,11 +89,17 @@ export interface BuildGraphOptions {
     chat: AgentModel;
     /** SIN herramientas: escribe la pregunta de aclaración. */
     clarify: AgentModel;
+    /** Modelo barato con salida estructurada: decide el período de un reporte. */
+    reportPlan: PlanModel;
+    /** SIN herramientas: escribe la «Lectura» de un reporte a partir de datos ya calculados. */
+    report: AgentModel;
   };
   /** Las herramientas de CONSULTA, para que `tools` pueda ejecutarlas. Nunca incluye acciones. */
   tools: StructuredToolInterface[];
   /** Prepara y ejecuta las acciones aprobadas. */
   actions: ActionRunner;
+  /** Corre una sección de un reporte (ventas, turnos o stock). Las tres corren a la vez. */
+  reportSections: SectionRunner;
   /** Reloj inyectable para los tests. */
   now?: () => Date;
   /** Avisos de quien opera el sistema (por ejemplo, salida inválida del router). */
@@ -105,7 +119,7 @@ export interface BuildGraphOptions {
  *                              │        │                                          └─ válida → await_approval ⟲ (interrupt)
  *                              └────────┴──────────────────── execute_action ◀──────────────────┘
  */
-export function buildGraph({ models, tools, actions, now, warn, checkpointer }: BuildGraphOptions) {
+export function buildGraph({ models, tools, actions, reportSections, now, warn, checkpointer }: BuildGraphOptions) {
   return (
     new StateGraph(AgentState)
       .addNode("router", makeRouterNode(models.router, { warn }))
@@ -114,7 +128,13 @@ export function buildGraph({ models, tools, actions, now, warn, checkpointer }: 
       // Es el ÚNICO ToolNode y solo conoce herramientas de consulta: una acción pedida acá da "no existe".
       .addNode("tools", new ToolNode(tools, { handleToolErrors: true }))
       .addNode("chat", makeChatNode(models.chat))
-      .addNode("report_stub", reportStubNode)
+      .addNode("plan_report", makePlanReportNode(models.reportPlan, { now, warn }))
+      // Las tres secciones se lanzan a la vez con Send (ver fanOutReport); ninguna llama a un modelo.
+      // Reciben una entrada propia (no el estado), por eso el tipo se fuerza.
+      .addNode(SECTION_NODES.sales, makeSectionNode("sales", reportSections) as never)
+      .addNode(SECTION_NODES.appointments, makeSectionNode("appointments", reportSections) as never)
+      .addNode(SECTION_NODES.stock, makeSectionNode("stock", reportSections) as never)
+      .addNode("compose_report", makeComposeReportNode(models.report, { warn }))
       .addNode("clarify", makeClarifyNode(models.clarify))
       .addNode("action_agent", makeActionAgentNode(models.action, { now }))
       .addNode("propose_action", makeProposeActionNode(actions, { now }))
@@ -122,7 +142,7 @@ export function buildGraph({ models, tools, actions, now, warn, checkpointer }: 
       .addNode("await_approval", makeApprovalNode(actions, { now }))
       .addNode("execute_action", makeExecuteActionNode(actions, { now }))
       .addEdge(START, "router")
-      .addConditionalEdges("router", routeByIntent, ["agent", "chat", "action_agent", "report_stub", "clarify"])
+      .addConditionalEdges("router", routeByIntent, ["agent", "chat", "action_agent", "plan_report", "clarify"])
       .addConditionalEdges("agent", routeAfterAgent, ["tools", END])
       .addConditionalEdges("tools", routeAfterTools, ["agent", "action_agent"])
       .addConditionalEdges("action_agent", routeAfterActionAgent, ["tools", "propose_action", END])
@@ -130,7 +150,12 @@ export function buildGraph({ models, tools, actions, now, warn, checkpointer }: 
       .addConditionalEdges("await_approval", routeAfterApproval, ["execute_action", "await_approval"])
       .addEdge("execute_action", "action_agent")
       .addEdge("chat", END)
-      .addEdge("report_stub", END)
+      // Fan-out: plan_report devuelve tres Send. Fan-in: las tres secciones convergen en compose_report, que corre una vez.
+      .addConditionalEdges("plan_report", fanOutReport, [SECTION_NODES.sales, SECTION_NODES.appointments, SECTION_NODES.stock])
+      .addEdge(SECTION_NODES.sales, "compose_report")
+      .addEdge(SECTION_NODES.appointments, "compose_report")
+      .addEdge(SECTION_NODES.stock, "compose_report")
+      .addEdge("compose_report", END)
       .addEdge("clarify", END)
       .compile({ checkpointer })
   );

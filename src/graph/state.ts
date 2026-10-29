@@ -1,8 +1,9 @@
 import type { BaseMessage } from "@langchain/core/messages";
-import { MessagesValue, StateSchema } from "@langchain/langgraph";
+import { MessagesValue, ReducedValue, StateSchema } from "@langchain/langgraph";
 import { z } from "zod";
 import { approvalSchema, pendingActionSchema } from "./approval.js";
 import { INTENTS } from "./intents.js";
+import { mergeParts, partSchema, reportSchema } from "./report/state.js";
 
 // MessagesValue es un campo con reducer: cada nodo devuelve mensajes nuevos
 // y LangGraph los agrega al historial en lugar de reemplazarlo.
@@ -16,6 +17,11 @@ export const AgentState = new StateSchema({
   pendingAction: pendingActionSchema.nullable().optional(),
   // Decisión ya procesada sobre esa acción. `null` cuando no hay ninguna.
   approval: approvalSchema.nullable().optional(),
+  // Reporte en curso (fase 6): período y título. Se reemplaza en cada pedido de reporte.
+  report: reportSchema.optional(),
+  // Resultados de las tres secciones del reporte. CON reducer: las tres secciones escriben en el mismo paso y sus
+  // partes se concatenan; un reporte nuevo (otro `reportId`) reemplaza todo lo anterior.
+  reportParts: new ReducedValue(z.array(partSchema).default([]), { reducer: mergeParts }),
 });
 
 export type AgentStateType = typeof AgentState.State;
@@ -27,5 +33,7 @@ export const makeState = (messages: BaseMessage[], overrides: Partial<AgentState
   intentReason: undefined,
   pendingAction: undefined,
   approval: undefined,
+  report: undefined,
+  reportParts: [],
   ...overrides,
 });
