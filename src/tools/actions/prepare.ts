@@ -1,17 +1,7 @@
 import type { Db } from "../../db/client.js";
-import { describeMoment, localDateTimeToUtc, localMinutesOfDay, localWeekday } from "../dates.js";
+import { describeMoment } from "../dates.js";
 import { ToolUserError } from "../safe.js";
-import {
-  CLOSE_MINUTE,
-  CLOSED_WEEKDAY,
-  describeZodError,
-  HIGH_RISK_STOCK_DELTA,
-  money,
-  OPEN_MINUTE,
-  PAYMENT_LABELS,
-  resolveByName,
-  SLOT_MINUTES,
-} from "./rules.js";
+import { checkAppointmentSlot, describeZodError, HIGH_RISK_STOCK_DELTA, money, PAYMENT_LABELS, resolveByName } from "./rules.js";
 import { ACTION_SCHEMAS, type ActionName, type ActionParams, type PreparedAction } from "./schemas.js";
 
 // `prepare`: valida una acción pedida por el modelo (o editada por la persona), la normaliza y arma el
@@ -31,15 +21,7 @@ const prepareCreateAppointment: Handler<"createAppointment"> = async (db, p, now
     "servicio",
   );
 
-  if (localWeekday(p.date) === CLOSED_WEEKDAY) throw new ToolUserError("La barbería no abre los domingos.");
-  const startsAt = localDateTimeToUtc(p.date, p.time);
-  const endsAt = new Date(startsAt.getTime() + service.durationMin * 60_000);
-  const startMinute = localMinutesOfDay(startsAt);
-  if (startMinute % SLOT_MINUTES !== 0) throw new ToolUserError(`Los turnos empiezan en múltiplos de ${SLOT_MINUTES} minutos (por ejemplo 15:00 o 15:15).`);
-  if (startMinute < OPEN_MINUTE || startMinute + service.durationMin > CLOSE_MINUTE) {
-    throw new ToolUserError(`Los turnos son entre las 10:00 y las 20:00, y ${service.name} dura ${service.durationMin} minutos: tiene que terminar antes del cierre.`);
-  }
-  if (startsAt.getTime() <= now.getTime()) throw new ToolUserError("Ese horario ya pasó. Elegí uno futuro.");
+  const { startsAt, endsAt } = checkAppointmentSlot(p.date, p.time, service.durationMin, service.name, now);
 
   const clash = await db.appointment.findFirst({
     where: { staffId: staff.id, status: { not: "cancelled" }, startsAt: { lt: endsAt }, endsAt: { gt: startsAt } },
