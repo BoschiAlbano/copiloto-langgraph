@@ -1,5 +1,7 @@
 import { estimateCostUsd } from "../config/pricing.js";
+import type { ApprovalRequest } from "../graph/approval.js";
 import type { CheckpointInfo, ThreadSummary } from "../graph/threads.js";
+import type { ActionResult } from "../graph/usage.js";
 import { costOfUsage, totalUsage, type ModelUsage } from "../graph/usage-tracker.js";
 
 export const number = (n: number) => n.toLocaleString("es-AR");
@@ -39,6 +41,42 @@ export function describeCheckpoint(c: CheckpointInfo): string {
   const next = c.next.length ? c.next.join("+") : "fin";
   const route = c.intent ? ` · ruta ${c.intent}` : "";
   return `${String(c.step).padStart(3)}  ${c.source.padEnd(6)} corrió ${ran.padEnd(12)} sigue ${next.padEnd(12)} ${String(c.messageCount).padStart(2)} msj${route}  ${c.checkpointId.slice(0, 8)}`;
+}
+
+const RISK_LABELS = { low: "bajo", medium: "medio", high: "alto" } as const;
+
+/**
+ * La tarjeta de aprobación en texto. Todo sale del estado guardado y de lo que armó el código: el texto
+ * que escribió el modelo no se usa.
+ */
+export function describeCard(request: ApprovalRequest): string[] {
+  const { action, error } = request;
+  return [
+    ...(error ? [`  ⚠ ${error}`, ""] : []),
+    `  ┌─ Acción propuesta · riesgo ${RISK_LABELS[action.risk]}`,
+    `  │ ${action.summary}`,
+    `  │ ${action.tool} ${JSON.stringify(action.params)}`,
+    "  └─ ¿La aprobás?  [s] sí  ·  [n] no (podés escribir un motivo: «n porque …»)  ·  [e] editar los parámetros",
+  ];
+}
+
+/** Línea con el resultado de una acción decidida, armada por el código. */
+export function describeActionResult(result: ActionResult): string {
+  return `  [acción] ${result.ok ? "✔" : "✖"} ${result.message}`;
+}
+
+/** Interpreta lo que escribió la persona ante la tarjeta. `null` si no se entiende. */
+export function parseDecisionInput(input: string): { decision: "approve" } | { decision: "reject"; comment?: string } | { decision: "edit" } | null {
+  const text = input.trim();
+  const lower = text.toLowerCase();
+  if (["s", "si", "sí", "aprobar", "ok"].includes(lower)) return { decision: "approve" };
+  if (["e", "editar"].includes(lower)) return { decision: "edit" };
+  const reject = /^(n|no|rechazar)(?:\s+(.*))?$/i.exec(text);
+  if (reject) {
+    const comment = reject[2]?.replace(/^porque\s+/i, "").trim().slice(0, 200);
+    return comment ? { decision: "reject", comment } : { decision: "reject" };
+  }
+  return null;
 }
 
 /** Resumen de una línea de todo el uso. */

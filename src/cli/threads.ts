@@ -36,7 +36,7 @@ try {
       const status = await getStatus(agent.graph, id);
       if (!status.exists) throw new Error(`No existe el hilo ${id}.`);
       const history = await getHistory(agent.graph, id);
-      console.log(`Hilo ${id}: ${history.length} checkpoints${status.pending ? " (⚠ a medias)" : ""}, del más nuevo al más viejo:\n`);
+      console.log(`Hilo ${id}: ${history.length} checkpoints${status.awaiting ? " (⏸ espera tu aprobación)" : status.pending ? " (⚠ a medias)" : ""}, del más nuevo al más viejo:\n`);
       console.log("paso  origen corrió        sigue         msj  ruta                 id");
       for (const c of history) console.log(`  ${describeCheckpoint(c)}`);
     } else {

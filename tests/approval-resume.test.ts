@@ -88,6 +88,7 @@ describe.skipIf(!checkpointsUrl)("aprobación sobre hilos guardados", () => {
     expect(done.awaiting).toBeUndefined();
     expect(done.reply).toBe("Listo, el turno quedó cancelado.");
     expect(done.summary.actions).toEqual([{ tool: "cancelAppointment", ok: true, message: expect.stringContaining("Hecho: cancelAppointment") }]);
+    expect(done.summary.toolCalls).toEqual([]); // la propuesta se pidió antes de la pausa: no cuenta de nuevo
     expect(second.actions.executed).toHaveLength(1);
     expect(second.actions.executed[0]).toMatchObject({ threadId: id, actionId: `${id}:toolu_1`, decision: "approved" });
     await second.close();

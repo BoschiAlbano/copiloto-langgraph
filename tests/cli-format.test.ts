@@ -1,5 +1,61 @@
 import { describe, expect, it } from "vitest";
-import { describeCheckpoint, describeThread, formatWhen } from "../src/cli/format.js";
+import { describeActionResult, describeCard, describeCheckpoint, describeThread, formatWhen, parseDecisionInput } from "../src/cli/format.js";
+
+describe("tarjeta de aprobación", () => {
+  const request = {
+    kind: "approve_action" as const,
+    action: {
+      id: "h:1",
+      toolCallId: "1",
+      tool: "cancelAppointment" as const,
+      params: { appointmentId: 7 },
+      risk: "medium" as const,
+      summary: "Cancelar el turno #7 de Ana.",
+    },
+  };
+
+  it("muestra el resumen del código, el riesgo y los parámetros", () => {
+    const text = describeCard(request).join("\n");
+    expect(text).toContain("riesgo medio");
+    expect(text).toContain("Cancelar el turno #7 de Ana.");
+    expect(text).toContain('cancelAppointment {"appointmentId":7}');
+    expect(text).toContain("[s] sí");
+    expect(text).not.toContain("⚠");
+  });
+
+  it("si se vuelve a preguntar, muestra el motivo primero", () => {
+    const text = describeCard({ ...request, error: "Decisión inválida: x." }).join("\n");
+    expect(text.indexOf("Decisión inválida")).toBeLessThan(text.indexOf("Acción propuesta"));
+  });
+
+  it("el resultado de la acción marca éxito o fallo", () => {
+    expect(describeActionResult({ tool: "cancelAppointment", ok: true, message: "Turno #7 cancelado." })).toBe("  [acción] ✔ Turno #7 cancelado.");
+    expect(describeActionResult({ tool: "adjustStock", ok: false, message: "No se pudo." })).toContain("✖");
+  });
+});
+
+describe("parseDecisionInput", () => {
+  it("entiende aprobar, editar y rechazar con o sin motivo", () => {
+    for (const yes of ["s", "S", "sí", "si", " aprobar ", "ok"]) expect(parseDecisionInput(yes), yes).toEqual({ decision: "approve" });
+    for (const edit of ["e", "E", "editar"]) expect(parseDecisionInput(edit), edit).toEqual({ decision: "edit" });
+    expect(parseDecisionInput("n")).toEqual({ decision: "reject" });
+    expect(parseDecisionInput("no")).toEqual({ decision: "reject" });
+    expect(parseDecisionInput("n porque es el turno equivocado")).toEqual({ decision: "reject", comment: "es el turno equivocado" });
+    expect(parseDecisionInput("rechazar mejor mañana")).toEqual({ decision: "reject", comment: "mejor mañana" });
+  });
+
+  it("lo demás no se interpreta, para no aprobar por accidente", () => {
+    for (const other of ["", "quizás", "sí, pero cambialo", "nunca", "snow", "listo", "dale", "y"]) {
+      expect(parseDecisionInput(other), other).toBeNull();
+    }
+  });
+
+  it("recorta los motivos largos a 200 caracteres", () => {
+    const decision = parseDecisionInput(`n ${"x".repeat(500)}`);
+    expect(decision).toMatchObject({ decision: "reject" });
+    expect((decision as { comment: string }).comment).toHaveLength(200);
+  });
+});
 
 describe("formatWhen", () => {
   it("muestra la hora de Argentina (UTC-3)", () => {
