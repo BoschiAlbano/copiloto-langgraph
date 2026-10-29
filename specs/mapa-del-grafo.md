@@ -221,7 +221,7 @@ flowchart TD
 | --- | --- | --- | --- | --- |
 | `action_agent` | Nosotros (`nodes/action-agent.ts`) | Prompt de acciones con la fecha; junta ids con las consultas y pide **una** acción | `MODEL_AGENT` con consultas + definiciones de las 4 acciones | 1 mensaje de IA |
 | `propose_action` | Nosotros (`nodes/actions.ts`) | Valida la acción con las reglas del negocio y arma el resumen y el riesgo **desde la base**; rechaza varias acciones juntas | ninguno | `pendingAction`, o mensajes de error de herramienta |
-| `await_approval` | Nosotros (`nodes/actions.ts`) | Llama a `interrupt`: el grafo se pausa hasta que llegue la decisión; la valida (estricta) y re-valida una edición | ninguno | `approval` |
+| `await_approval` | Nosotros (`nodes/actions.ts`) | Llama a `interrupt`: el grafo se pausa hasta que llegue la decisión; la valida (estricta). Una **edición** se re-valida y reemplaza la propuesta, pero **no se ejecuta**: vuelve a preguntar con la tarjeta recalculada | ninguno | `approval` (y `pendingAction`, si se editó) |
 | `execute_action` | Nosotros (`nodes/actions.ts`) | Con una decisión vigente sobre **esa** acción, ejecuta (o registra el rechazo) en una transacción con la auditoría | ninguno | 1 mensaje de herramienta; `pendingAction` y `approval` a `null` |
 
 | # | Desde | Hasta | Tipo | Cómo se declara (`src/graph/index.ts`) |
@@ -232,14 +232,15 @@ flowchart TD
 | 9–10 | `tools` | `agent`, `action_agent` | Condicional (`intent`) | `routeAfterTools`: vuelve a quien preguntó |
 | 11–13 | `action_agent` | `tools`, `propose_action`, `END` | Condicional | `routeAfterActionAgent` |
 | 14–15 | `propose_action` | `await_approval`, `action_agent` | Condicional (`pendingAction`) | `routeAfterPropose` |
-| 16–17 | `await_approval` | `execute_action`, `await_approval` | Condicional (`approval.decision`) | `routeAfterApproval`: una decisión inválida vuelve a preguntar |
+| 16–17 | `await_approval` | `execute_action`, `await_approval` | Condicional (`approval.decision`) | `routeAfterApproval`: solo `approved` y `rejected` ejecutan; `revised` (editada) e `invalid` vuelven a preguntar |
 | 18 | `execute_action` | `action_agent` | Fija | `.addEdge("execute_action", "action_agent")` |
 | 19–21 | `chat`, `report_stub`, `clarify` | `END` | Fijas | `.addEdge(…, END)` |
 
 | Situación | Camino | Notas |
 | --- | --- | --- |
 | Pedido claro de una acción | `START → router → action_agent → tools → action_agent → propose_action → await_approval` ⏸ | El grafo **se pausa**; la terminal muestra la tarjeta |
-| Aprobada, rechazada o editada | `await_approval → execute_action → action_agent → END` | Se retoma con `Command({ resume })`, incluso tras reiniciar el programa |
+| Aprobada o rechazada | `await_approval → execute_action → action_agent → END` | Se retoma con `Command({ resume })`, incluso tras reiniciar el programa |
+| Editada | `await_approval → await_approval` ⏸ | La propuesta se reemplaza con la edición y se vuelve a pedir la aprobación; no se ejecuta nada hasta aprobar |
 | Falta un dato o hay varias opciones | `START → router → action_agent → END` | El agente hace una pregunta; no hay propuesta |
 | Propuesta inválida (turno que ya pasó, stock insuficiente…) | `action_agent → propose_action → action_agent` | El error vuelve al modelo como mensaje de herramienta |
 | Decisión mal formada o edición inválida | `await_approval → await_approval` | Se vuelve a preguntar con el motivo; no se ejecuta nada |

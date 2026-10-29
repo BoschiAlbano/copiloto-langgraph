@@ -132,17 +132,28 @@ describe.skipIf(!hasWriteDb || !checkpointsUrl)("flujo de aprobación con la bas
     await p.close();
   });
 
-  it("CA3: editar ejecuta los parámetros nuevos y la auditoría guarda los dos juegos", async () => {
+  it("CA3 (el caso que falló en la práctica): editar NO ejecuta; la tarjeta se recalcula y recién al aprobar se aplica lo EDITADO", async () => {
     const id = threads.fresh();
-    const p = program([calls.stock("k"), new AIMessage("Hecho.")]);
-    const before = (await fx.sql.query(`SELECT stock FROM products WHERE sku = $1`, [TEST_SKU])).rows[0].stock as number;
-    await runTurn(p.agent, id, "Sumá stock");
-    await resumeTurn(p.agent, id, { decision: "edit", params: { sku: TEST_SKU, delta: 3, reason: "Llegaron solo 3" } });
-    expect((await fx.sql.query(`SELECT stock FROM products WHERE sku = $1`, [TEST_SKU])).rows[0].stock).toBe(before + 3);
+    const stockOf = async () => (await fx.sql.query(`SELECT stock FROM products WHERE sku = $1`, [TEST_SKU])).rows[0].stock as number;
+    const before = await stockOf();
+    // «Dejá el stock en 5»: el modelo propone restar todo lo que sobra. La persona lo edita a «restar 1».
+    const p = program([toolCall("k", "adjustStock", { sku: TEST_SKU, delta: 5 - before, reason: "Dejar el stock en 5" }), new AIMessage("Hecho.")]);
+    const proposed = await runTurn(p.agent, id, "Dejá el stock en 5");
+    expect(proposed.awaiting?.action.params).toMatchObject({ delta: 5 - before });
+
+    const revised = await resumeTurn(p.agent, id, { decision: "edit", params: { sku: TEST_SKU, delta: -1, reason: "Restar solo 1" } });
+    expect(await stockOf()).toBe(before); // editar no toca la base
+    expect((await logOf(id)).length).toBe(0); // ni deja auditoría: todavía no hay decisión
+    expect(revised.awaiting?.edited).toBe(true);
+    expect(revised.awaiting?.action.summary).toContain(`-1, de ${before} a ${before - 1}`); // resumen recalculado con la base
+    expect(revised.awaiting?.action.originalParams).toMatchObject({ delta: 5 - before });
+
+    await resumeTurn(p.agent, id, { decision: "approve" });
+    expect(await stockOf()).toBe(before - 1); // se restó 1, no lo que se había propuesto
     const [log] = await logOf(id);
     expect(log).toMatchObject({ decision: "edited" });
-    expect(log.payload.proposed).toMatchObject({ delta: 7 });
-    expect(log.payload.final).toMatchObject({ delta: 3, reason: "Llegaron solo 3" });
+    expect(log.payload.proposed).toMatchObject({ delta: 5 - before });
+    expect(log.payload.final).toMatchObject({ delta: -1, reason: "Restar solo 1" });
     await p.close();
   });
 

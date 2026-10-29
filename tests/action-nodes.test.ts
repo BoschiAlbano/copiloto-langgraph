@@ -135,6 +135,8 @@ describe("execute_action", () => {
       { pendingAction: action, approval: null },
       { pendingAction: action, approval: { actionId: "hilo-1:otra", decision: "approved" } },
       { pendingAction: action, approval: { actionId: action.id, decision: "invalid", error: "x" } },
+      // Una edición (`revised`) todavía no es una aprobación: falta aprobar lo editado.
+      { pendingAction: action, approval: { actionId: action.id, decision: "revised" } },
       { pendingAction: null, approval: { actionId: action.id, decision: "approved" } },
     ];
     for (const over of refused) {
@@ -168,13 +170,11 @@ describe("execute_action", () => {
     expect(update.messages[0]!.text).toBe("Turno #7 cancelado.");
   });
 
-  it("editar ejecuta los parámetros nuevos y conserva los propuestos", async () => {
+  it("aprobar una propuesta editada ejecuta lo editado y conserva lo que propuso el modelo", async () => {
     const runner = fakeRunner();
+    const edited: PendingAction = { ...action, params: { appointmentId: 8 }, originalParams: { appointmentId: 7 }, summary: "Cancelar el turno #8.", risk: "low" };
     await makeExecuteActionNode(runner)(
-      state({
-        pendingAction: action,
-        approval: { actionId: action.id, decision: "edited", params: { appointmentId: 8 }, summary: "Cancelar el turno #8.", risk: "low", comment: "me equivoqué" },
-      }),
+      state({ pendingAction: edited, approval: { actionId: action.id, decision: "approved", comment: "ahora sí" } }),
       config,
     );
     expect(runner.execute.mock.calls[0]![0]).toMatchObject({
@@ -183,8 +183,15 @@ describe("execute_action", () => {
       summary: "Cancelar el turno #8.",
       risk: "low",
       decision: "edited",
-      comment: "me equivoqué",
+      comment: "ahora sí",
     });
+  });
+
+  it("rechazar después de editar registra lo que propuso el modelo y no ejecuta nada", async () => {
+    const runner = fakeRunner({ execute: vi.fn(async () => ({ status: "rejected", message: "rechazada" }) as ExecutionOutcome) });
+    const edited: PendingAction = { ...action, params: { appointmentId: 8 }, originalParams: { appointmentId: 7 } };
+    await makeExecuteActionNode(runner)(state({ pendingAction: edited, approval: { actionId: action.id, decision: "rejected" } }), config);
+    expect(runner.execute.mock.calls[0]![0]).toMatchObject({ decision: "rejected", proposed: { appointmentId: 7 } });
   });
 
   it("rechazar pasa la decisión al ejecutor para que la registre, con el comentario", async () => {

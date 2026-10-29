@@ -102,22 +102,35 @@ describe.skipIf(!checkpointsUrl)("aprobación sobre hilos guardados", () => {
     await third.close();
   });
 
-  it("rechazar y editar también funcionan tras reiniciar", async () => {
-    for (const [decision, expected] of [
-      [{ decision: "reject", comment: "no" } as HumanDecision, { decision: "rejected", comment: "no" }],
-      [{ decision: "edit", params: { appointmentId: 9 } } as HumanDecision, { decision: "edited", params: { appointmentId: 9 }, proposed: { appointmentId: 7 } }],
-    ] as const) {
-      const id = threads.fresh();
-      const first = program([cancel()]);
-      await runTurn(first.agent, id, "Cancelá el turno 7");
-      await first.close();
+  it("rechazar también funciona tras reiniciar", async () => {
+    const id = threads.fresh();
+    const first = program([cancel()]);
+    await runTurn(first.agent, id, "Cancelá el turno 7");
+    await first.close();
 
-      const second = program([new AIMessage("ok")]);
-      await resumeTurn(second.agent, id, decision);
-      expect(second.actions.executed).toHaveLength(1);
-      expect(second.actions.executed[0]).toMatchObject(expected);
-      await second.close();
-    }
+    const second = program([new AIMessage("ok")]);
+    await resumeTurn(second.agent, id, { decision: "reject", comment: "no" });
+    expect(second.actions.executed).toHaveLength(1);
+    expect(second.actions.executed[0]).toMatchObject({ decision: "rejected", comment: "no" });
+    await second.close();
+  });
+
+  it("una edición queda guardada: tras reiniciar se ve la propuesta editada, sin ejecutar nada, y aprobar ejecuta lo editado", async () => {
+    const id = threads.fresh();
+    const first = program([cancel()]);
+    await runTurn(first.agent, id, "Cancelá el turno 7");
+    const edited = await resumeTurn(first.agent, id, { decision: "edit", params: { appointmentId: 9 } });
+    expect(edited.awaiting).toMatchObject({ edited: true, action: { params: { appointmentId: 9 }, originalParams: { appointmentId: 7 } } });
+    expect(first.actions.execute).not.toHaveBeenCalled();
+    await first.close(); // se cierra el programa con la propuesta ya editada y sin aprobar
+
+    const second = program([new AIMessage("ok")]);
+    const status = await getStatus(second.graph, id);
+    expect(status.awaiting).toMatchObject({ edited: true, action: { params: { appointmentId: 9 }, originalParams: { appointmentId: 7 } } });
+    await resumeTurn(second.agent, id, approve);
+    expect(second.actions.executed).toHaveLength(1);
+    expect(second.actions.executed[0]).toMatchObject({ decision: "edited", params: { appointmentId: 9 }, proposed: { appointmentId: 7 } });
+    await second.close();
   });
 
   it("una decisión mal formada devuelve la misma propuesta con el motivo y no ejecuta nada", async () => {

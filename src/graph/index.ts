@@ -60,9 +60,13 @@ export function routeAfterPropose(state: AgentStateType): "await_approval" | "ac
   return state.pendingAction ? "await_approval" : "action_agent";
 }
 
-/** Una decisión que no se pudo usar (formato o edición inválida) vuelve a preguntar; si no, se ejecuta. */
+/**
+ * Solo una aprobación o un rechazo pasan a `execute_action`. Una decisión que no se pudo usar (formato o edición
+ * inválida) o una edición válida (`revised`: hay que aprobar lo editado) vuelven a preguntar.
+ */
 export function routeAfterApproval(state: AgentStateType): "execute_action" | "await_approval" {
-  return state.approval?.decision === "invalid" ? "await_approval" : "execute_action";
+  const decision = state.approval?.decision;
+  return decision === "approved" || decision === "rejected" ? "execute_action" : "await_approval";
 }
 
 export interface BuildGraphOptions {

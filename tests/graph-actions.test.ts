@@ -136,28 +136,71 @@ describe("decidir y reanudar", () => {
     expect((result.messages.at(-2) as ToolMessage).text).toContain("rechazó");
   });
 
-  it("editar (CA3): se ejecutan los parámetros nuevos y se conservan los propuestos", async () => {
+  it("editar (CA3) NO ejecuta: vuelve a preguntar con la tarjeta recalculada, y recién aprobar ejecuta lo editado", async () => {
     const t = await paused();
-    await decide(t, { decision: "edit", params: { appointmentId: 8 }, comment: "era el otro" });
-    expect(t.executed[0]).toMatchObject({
-      decision: "edited",
-      proposed: { appointmentId: 7 },
+    const again = await decide(t, { decision: "edit", params: { appointmentId: 8 } });
+
+    // Después de editar no se ejecutó nada: la propuesta quedó reemplazada y se vuelve a pedir la aprobación.
+    expect(t.execute).not.toHaveBeenCalled();
+    const request = requestOf(again)!;
+    expect(request.edited).toBe(true);
+    expect(request.error).toBeUndefined();
+    expect(request.action).toMatchObject({
+      id: "hilo-acciones:toolu_1", // sigue siendo la misma acción
       params: { appointmentId: 8 },
-      comment: "era el otro",
+      originalParams: { appointmentId: 7 }, // lo que propuso el modelo queda para la auditoría
+      summary: 'cancelAppointment {"appointmentId":8}', // resumen recalculado por el código
     });
+    expect((await t.graph.getState(THREAD)).next).toEqual(["await_approval"]);
+
+    // Ahora sí: aprobar ejecuta lo editado.
+    const done = await decide(t, { decision: "approve" });
+    expect(requestOf(done)).toBeUndefined();
+    expect(t.executed).toHaveLength(1);
+    expect(t.executed[0]).toMatchObject({ decision: "edited", proposed: { appointmentId: 7 }, params: { appointmentId: 8 } });
+    expect(done.pendingAction).toBeNull();
   });
 
-  it("una edición inválida no ejecuta nada y vuelve a preguntar con el motivo; después se puede corregir", async () => {
+  it("un «aprobar» justo después de editar aprueba lo EDITADO, nunca la propuesta original", async () => {
+    const t = await paused();
+    await decide(t, { decision: "edit", params: { appointmentId: 8 } });
+    await decide(t, { decision: "approve" });
+    expect(t.executed.map((e) => e.params)).toEqual([{ appointmentId: 8 }]);
+  });
+
+  it("se puede editar varias veces; la auditoría conserva solo lo que propuso el modelo", async () => {
+    const t = await paused();
+    await decide(t, { decision: "edit", params: { appointmentId: 8 } });
+    const second = await decide(t, { decision: "edit", params: { appointmentId: 9 } });
+    expect(requestOf(second)?.action).toMatchObject({ params: { appointmentId: 9 }, originalParams: { appointmentId: 7 } });
+    expect(t.execute).not.toHaveBeenCalled();
+    await decide(t, { decision: "approve" });
+    expect(t.executed[0]).toMatchObject({ decision: "edited", proposed: { appointmentId: 7 }, params: { appointmentId: 9 } });
+  });
+
+  it("rechazar después de editar no ejecuta nada y registra lo que propuso el modelo", async () => {
+    const t = await paused([cancelCall(), new AIMessage("Entendido.")]);
+    await decide(t, { decision: "edit", params: { appointmentId: 8 } });
+    await decide(t, { decision: "reject", comment: "mejor no" });
+    expect(t.executed).toHaveLength(1);
+    expect(t.executed[0]).toMatchObject({ decision: "rejected", proposed: { appointmentId: 7 }, comment: "mejor no" });
+  });
+
+  it("una edición inválida no ejecuta nada, deja la propuesta anterior y vuelve a preguntar con el motivo; después se puede corregir", async () => {
     const t = await paused();
     const again = await decide(t, { decision: "edit", params: { appointmentId: "siete" } });
     expect(t.execute).not.toHaveBeenCalled();
     const request = requestOf(again)!;
     expect(request.error).toMatch(/Edición rechazada: Parámetros inválidos para cancelAppointment/);
-    expect(request.action.id).toBe("hilo-acciones:toolu_1"); // sigue siendo la misma propuesta
+    expect(request.edited).toBeUndefined();
+    expect(request.action).toMatchObject({ id: "hilo-acciones:toolu_1", params: { appointmentId: 7 } }); // la propuesta anterior sigue
+    expect(request.action.originalParams).toBeUndefined();
     expect((await t.graph.getState(THREAD)).next).toEqual(["await_approval"]);
 
     const second = await decide(t, { decision: "edit", params: { appointmentId: 9 } });
-    expect(requestOf(second)).toBeUndefined();
+    expect(requestOf(second)?.edited).toBe(true);
+    expect(t.execute).not.toHaveBeenCalled();
+    await decide(t, { decision: "approve" });
     expect(t.executed).toHaveLength(1);
     expect(t.executed[0]).toMatchObject({ decision: "edited", params: { appointmentId: 9 } });
   });
@@ -181,6 +224,7 @@ describe("decidir y reanudar", () => {
       { decision: "reject", comment: 5 },
       { decision: "edit" }, // edición sin parámetros
       { decision: "edit", params: "no es un objeto" },
+      { decision: "edit", params: { appointmentId: 8 }, comment: "campo de más" }, // la edición no lleva comentario
       { decision: "APPROVE" },
     ];
     for (const resume of bad) {
@@ -292,9 +336,13 @@ describe("decisiones de ruteo", () => {
     const pending = { id: "x", toolCallId: "t", tool: "adjustStock" as const, params: {}, risk: "low" as const, summary: "s" };
     expect(routeAfterPropose(makeState([], { pendingAction: pending }))).toBe("await_approval");
     expect(routeAfterPropose(makeState([], { pendingAction: null }))).toBe("action_agent");
-    expect(routeAfterApproval(makeState([], { approval: { actionId: "x", decision: "invalid" } }))).toBe("await_approval");
-    for (const decision of ["approved", "rejected", "edited"] as const) {
+    // Solo aprobar y rechazar cierran la propuesta; editar o responder mal vuelve a preguntar.
+    for (const decision of ["invalid", "revised"] as const) {
+      expect(routeAfterApproval(makeState([], { approval: { actionId: "x", decision } }))).toBe("await_approval");
+    }
+    for (const decision of ["approved", "rejected"] as const) {
       expect(routeAfterApproval(makeState([], { approval: { actionId: "x", decision } }))).toBe("execute_action");
     }
+    expect(routeAfterApproval(makeState([], { approval: null }))).toBe("await_approval"); // sin decisión: nunca se ejecuta
   });
 });

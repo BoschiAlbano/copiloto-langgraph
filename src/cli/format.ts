@@ -50,12 +50,14 @@ const RISK_LABELS = { low: "bajo", medium: "medio", high: "alto" } as const;
  * que escribió el modelo no se usa.
  */
 export function describeCard(request: ApprovalRequest): string[] {
-  const { action, error } = request;
+  const { action, error, edited } = request;
   return [
-    ...(error ? [`  ⚠ ${error}`, "  La propuesta original SIGUE pendiente: no se aprobó ni se cambió nada.", ""] : []),
-    `  ┌─ Acción propuesta · riesgo ${RISK_LABELS[action.risk]}`,
+    ...(error ? [`  ⚠ ${error}`, "  La propuesta anterior SIGUE pendiente: no se aprobó ni se cambió nada.", ""] : []),
+    ...(edited ? ["  ✎ Editaste la propuesta. TODAVÍA NO SE EJECUTÓ NADA: revisala y aprobala con «s».", ""] : []),
+    `  ┌─ ${edited ? "Acción propuesta (editada)" : "Acción propuesta"} · riesgo ${RISK_LABELS[action.risk]}`,
     `  │ ${action.summary}`,
     `  │ ${action.tool} ${JSON.stringify(action.params)}`,
+    ...(action.originalParams ? [`  │ (el copiloto había propuesto: ${JSON.stringify(action.originalParams)})`] : []),
     "  └─ ¿La aprobás?  [s] sí  ·  [n] no (podés escribir un motivo: «n porque …»)  ·  [e] editar los parámetros",
   ];
 }
@@ -78,6 +80,12 @@ export function parseDecisionInput(input: string): { decision: "approve" } | { d
   }
   return null;
 }
+
+/**
+ * ¿Lo que escribió la persona ante la tarjeta parece una edición (un objeto JSON o `clave=valor`)? Pegar el JSON
+ * editado directo en el «¿Aprobás?» es lo natural: se trata como edición, no como una respuesta desconocida.
+ */
+export const looksLikeEdit = (input: string) => /^\s*\{/.test(input) || /^\s*[A-Za-z_]\w*\s*=/.test(input);
 
 export type EditParse = { ok: true; params: Record<string, unknown> } | { ok: false; error: string };
 

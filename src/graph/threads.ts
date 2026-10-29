@@ -64,6 +64,7 @@ export async function getStatus(graph: ThreadGraph, threadId: string): Promise<T
           ...(snapshot.values.approval?.decision === "invalid" && snapshot.values.approval.error
             ? { error: snapshot.values.approval.error }
             : {}),
+          ...(snapshot.values.approval?.decision === "revised" ? { edited: true as const } : {}),
         }
       : undefined;
   return {

@@ -12,6 +12,7 @@ import {
   describeCard,
   describeUsagePerModel,
   describeUsageTotal,
+  looksLikeEdit,
   parseDecisionInput,
   parseEditInput,
   usd,
@@ -151,31 +152,30 @@ for await (const line of rl) {
   const input = line.trim();
   if (input.toLowerCase() === "salir") break;
 
-  if (editing) {
-    if (!input) {
-      editing = false;
-      console.log("Edición cancelada: no se cambió nada y la acción sigue esperando tu decisión.\n");
-      showCard(awaiting!);
+  if (editing && !input) {
+    editing = false;
+    console.log("Edición cancelada: no se cambió nada y la acción sigue esperando tu decisión.\n");
+    showCard(awaiting!);
+  } else if (editing || (awaiting && looksLikeEdit(input))) {
+    // Editar NO ejecuta: si el cambio es válido, el grafo muestra la tarjeta recalculada y hay que aprobarla con «s».
+    const edit = parseEditInput(input, awaiting!.action.params);
+    if (!edit.ok) {
+      // Un error de lectura NO devuelve al «¿Aprobás?»: se sigue editando, así un «s» apurado no aprueba otra cosa.
+      editing = true;
+      console.log(`✖ No se pudo leer el cambio: ${edit.error}.`);
+      console.log("  Seguís editando (no se aprobó ni se cambió nada): probá de nuevo, o dejá el renglón vacío para cancelar.\n");
     } else {
-      const edit = parseEditInput(input, awaiting!.action.params);
-      if (!edit.ok) {
-        // Un error de lectura NO devuelve al «¿Aprobás?»: se sigue editando, así un «s» apurado no aprueba la propuesta original.
-        console.log(`✖ No se pudo leer el cambio: ${edit.error}.`);
-        console.log("  Seguís editando (no se aprobó ni se cambió nada): probá de nuevo, o dejá el renglón vacío para cancelar.\n");
-      } else {
-        editing = false;
-        // Los parámetros nuevos pasan por las mismas reglas que la propuesta: si no valen, el grafo vuelve a preguntar.
-        await decide({ decision: "edit", params: edit.params });
-      }
+      editing = false;
+      await decide({ decision: "edit", params: edit.params });
     }
   } else if (awaiting) {
     const decision = parseDecisionInput(input);
     if (!decision) {
-      if (input) console.log("Este hilo espera tu decisión. Respondé s (aprobar), n (rechazar, con motivo opcional) o e (editar).\n");
+      if (input) console.log("Este hilo espera tu decisión (todavía no se aprobó nada). Respondé s (aprobar), n (rechazar, con motivo opcional) o e (editar).\n");
     } else if (decision.decision === "edit") {
       console.log(`Parámetros actuales: ${JSON.stringify(awaiting.action.params)}`);
-      console.log("Escribí qué cambiar: clave=valor (por ejemplo delta=50; se pueden separar varios con «;») o el objeto JSON completo.");
-      console.log("Con el renglón vacío se cancela la edición. Lo editado se ejecuta apenas es válido.");
+      console.log("Escribí qué cambiar: clave=valor (por ejemplo delta=50; varios separados con «;») o el objeto JSON completo.");
+      console.log("Con el renglón vacío se cancela. Editar no ejecuta nada: después te muestro la tarjeta nueva para que la apruebes.");
       editing = true;
     } else await decide(decision);
   } else if (input.toLowerCase() === "/continuar") {

@@ -92,7 +92,7 @@ export function makeProposeActionNode(runner: Pick<ActionRunner, "prepare">, opt
 
 export function makeApprovalNode(runner: Pick<ActionRunner, "prepare">, options: { now?: () => Date } = {}) {
   const now = options.now ?? (() => new Date());
-  return async (state: AgentStateType): Promise<{ approval: Approval }> => {
+  return async (state: AgentStateType): Promise<{ approval: Approval; pendingAction?: PendingAction }> => {
     const action = state.pendingAction;
     if (!action) throw new Error("approval necesita una acción propuesta.");
 
@@ -101,6 +101,7 @@ export function makeApprovalNode(runner: Pick<ActionRunner, "prepare">, options:
       kind: "approve_action",
       action,
       ...(state.approval?.decision === "invalid" && state.approval.error ? { error: state.approval.error } : {}),
+      ...(state.approval?.decision === "revised" ? { edited: true as const } : {}),
     };
     const answer: unknown = interrupt(request);
 
@@ -116,17 +117,19 @@ export function makeApprovalNode(runner: Pick<ActionRunner, "prepare">, options:
         return { approval: { actionId: action.id, decision: "rejected", ...(decision.comment && { comment: decision.comment }) } };
       case "edit":
         try {
-          // La edición pasa por las mismas reglas que la propuesta original.
+          // La edición pasa por las mismas reglas que la propuesta original. NO se ejecuta: reemplaza a la propuesta
+          // (con su resumen y riesgo recalculados) y el grafo vuelve a preguntar. Los parámetros que propuso el
+          // modelo se guardan una sola vez, para la auditoría.
           const edited = await runner.prepare(action.tool, decision.params, now());
           return {
-            approval: {
-              actionId: action.id,
-              decision: "edited",
+            pendingAction: {
+              ...action,
               params: edited.params,
-              summary: edited.summary,
               risk: edited.risk,
-              ...(decision.comment && { comment: decision.comment }),
+              summary: edited.summary,
+              originalParams: action.originalParams ?? action.params,
             },
+            approval: { actionId: action.id, decision: "revised" },
           };
         } catch (error) {
           if (!(error instanceof ToolUserError)) throw error;
@@ -152,19 +155,23 @@ export function makeExecuteActionNode(runner: Pick<ActionRunner, "execute">, opt
     if (!action) throw new ApprovalRequiredError("no hay ninguna acción propuesta.");
     if (!approval) throw new ApprovalRequiredError("la acción no tiene una decisión de la persona.");
     if (approval.actionId !== action.id) throw new ApprovalRequiredError("la decisión es de otra acción.");
-    if (approval.decision === "invalid") throw new ApprovalRequiredError("la decisión no es válida.");
+    // Solo una aprobación o un rechazo cierran la propuesta. Una edición (`revised`) o una respuesta inválida no.
+    if (approval.decision !== "approved" && approval.decision !== "rejected") {
+      throw new ApprovalRequiredError(approval.decision === "revised" ? "la propuesta se editó y falta aprobarla." : "la decisión no es válida.");
+    }
 
-    const edited = approval.decision === "edited";
+    // Si la persona editó, se ejecuta lo editado (`action.params`) y la auditoría conserva lo que propuso el modelo.
+    const edited = action.originalParams !== undefined;
     const outcome = await runner.execute(
       {
         threadId: threadIdOf(config),
         actionId: action.id,
         tool: action.tool,
-        proposed: action.params,
-        params: edited ? approval.params! : action.params,
-        summary: edited ? (approval.summary ?? action.summary) : action.summary,
-        risk: edited ? (approval.risk ?? action.risk) : action.risk,
-        decision: approval.decision,
+        proposed: action.originalParams ?? action.params,
+        params: action.params,
+        summary: action.summary,
+        risk: action.risk,
+        decision: approval.decision === "rejected" ? "rejected" : edited ? "edited" : "approved",
         ...(approval.comment && { comment: approval.comment }),
       },
       now(),

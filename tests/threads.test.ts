@@ -31,7 +31,8 @@ describe.skipIf(!checkpointsUrl)("listado y borrado de hilos", () => {
     });
 
     it("devuelve los hilos del más reciente al más viejo", async () => {
-      const mine = (await listThreads({ pool: cp.pool, graph }, 200)).filter((t) => t.threadId.startsWith("lista-"));
+      // Solo mis tres hilos: así un resto de otra corrida con el mismo prefijo no puede ensuciar la comparación.
+      const mine = (await listThreads({ pool: cp.pool, graph }, 200)).filter((t) => [oldest, middle, newest].includes(t.threadId));
       // La actividad de `middle` (dos turnos) es posterior a la de `oldest` y anterior a la de `newest`.
       expect(mine.map((t) => t.threadId)).toEqual([newest, middle, oldest]);
       for (let i = 1; i < mine.length; i++) {

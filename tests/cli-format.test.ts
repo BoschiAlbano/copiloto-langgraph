@@ -5,6 +5,7 @@ import {
   describeCheckpoint,
   describeThread,
   formatWhen,
+  looksLikeEdit,
   parseDecisionInput,
   parseEditInput,
 } from "../src/cli/format.js";
@@ -36,14 +37,41 @@ describe("tarjeta de aprobación", () => {
     expect(text.indexOf("Decisión inválida")).toBeLessThan(text.indexOf("Acción propuesta"));
   });
 
-  it("si se vuelve a preguntar, aclara que la propuesta original sigue pendiente", () => {
+  it("si se vuelve a preguntar por un error, aclara que la propuesta anterior sigue pendiente", () => {
     expect(describeCard({ ...request, error: "Edición rechazada: x." }).join("\n")).toContain("SIGUE pendiente");
     expect(describeCard(request).join("\n")).not.toContain("SIGUE pendiente");
+  });
+
+  it("una propuesta editada avisa que todavía no se ejecutó nada y muestra lo que había propuesto el copiloto", () => {
+    const text = describeCard({
+      ...request,
+      edited: true,
+      action: { ...request.action, params: { appointmentId: 8 }, originalParams: { appointmentId: 7 } },
+    }).join("\n");
+    expect(text).toContain("TODAVÍA NO SE EJECUTÓ NADA");
+    expect(text).toContain("Acción propuesta (editada)");
+    expect(text).toContain('cancelAppointment {"appointmentId":8}');
+    expect(text).toContain('el copiloto había propuesto: {"appointmentId":7}');
+    expect(describeCard(request).join("\n")).not.toContain("TODAVÍA NO SE EJECUTÓ");
   });
 
   it("el resultado de la acción marca éxito o fallo", () => {
     expect(describeActionResult({ tool: "cancelAppointment", ok: true, message: "Turno #7 cancelado." })).toBe("  [acción] ✔ Turno #7 cancelado.");
     expect(describeActionResult({ tool: "adjustStock", ok: false, message: "No se pudo." })).toContain("✖");
+  });
+});
+
+describe("looksLikeEdit", () => {
+  it("un JSON o un clave=valor pegados ante el «¿Aprobás?» se toman como una edición", () => {
+    for (const input of ['{"sku":"AFT-001","delta":-1}', ' {"delta":-1', "delta=-1", "delta = 5; reason=x", '{"delta":-1,}']) {
+      expect(looksLikeEdit(input), input).toBe(true);
+    }
+  });
+
+  it("las respuestas normales no son ediciones", () => {
+    for (const input of ["s", "n", "e", "no", "n porque sí", "sí", "aprobar", "", "hola", "quiero editar"]) {
+      expect(looksLikeEdit(input), input).toBe(false);
+    }
   });
 });
 

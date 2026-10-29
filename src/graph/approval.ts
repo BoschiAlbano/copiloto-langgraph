@@ -12,21 +12,24 @@ export const pendingActionSchema = z.object({
   /** Id de la llamada a herramienta del modelo a la que hay que responder con un mensaje de herramienta. */
   toolCallId: z.string().min(1),
   tool: z.enum(ACTION_NAMES as [ActionName, ...ActionName[]]),
+  /** Lo que se ejecuta si la persona aprueba. Si se editó, son los parámetros editados. */
   params,
+  /** Los parámetros que propuso el modelo, solo si la persona los editó (queda para la auditoría). */
+  originalParams: params.optional(),
   risk: z.enum(["low", "medium", "high"]),
   summary: z.string().min(1),
 });
 export type PendingAction = z.infer<typeof pendingActionSchema>;
 
-/** Decisión ya procesada, guardada en el estado para que `execute_action` la use. */
+/** Decisión ya procesada, guardada en el estado. */
 export const approvalSchema = z.object({
   actionId: z.string().min(1),
-  /** `invalid`: la respuesta no se pudo usar (formato o edición inválida); se vuelve a preguntar. */
-  decision: z.enum(["approved", "rejected", "edited", "invalid"]),
-  /** Con `edited`: parámetros nuevos ya validados y normalizados. */
-  params: params.optional(),
-  summary: z.string().optional(),
-  risk: z.enum(["low", "medium", "high"]).optional(),
+  /**
+   * `approved` y `rejected` cierran la propuesta (`execute_action` las usa).
+   * `revised`: la persona editó la propuesta; NO se ejecuta, se vuelve a preguntar con la tarjeta nueva.
+   * `invalid`: la respuesta no se pudo usar (formato o edición inválida); se vuelve a preguntar.
+   */
+  decision: z.enum(["approved", "rejected", "revised", "invalid"]),
   comment: z.string().optional(),
   error: z.string().optional(),
 });
@@ -39,7 +42,7 @@ export type Approval = z.infer<typeof approvalSchema>;
 export const humanDecisionSchema = z.discriminatedUnion("decision", [
   z.strictObject({ decision: z.literal("approve") }),
   z.strictObject({ decision: z.literal("reject"), comment: z.string().trim().max(200).optional() }),
-  z.strictObject({ decision: z.literal("edit"), params, comment: z.string().trim().max(200).optional() }),
+  z.strictObject({ decision: z.literal("edit"), params }),
 ]);
 export type HumanDecision = z.infer<typeof humanDecisionSchema>;
 
@@ -47,6 +50,8 @@ export type HumanDecision = z.infer<typeof humanDecisionSchema>;
 export interface ApprovalRequest {
   kind: "approve_action";
   action: PendingAction;
-  /** Por qué se vuelve a preguntar (decisión inválida o edición rechazada). */
+  /** Por qué se vuelve a preguntar (decisión inválida o edición rechazada). La propuesta anterior sigue pendiente. */
   error?: string;
+  /** La persona acaba de editar la propuesta: la tarjeta ya muestra lo editado y todavía no se ejecutó nada. */
+  edited?: true;
 }
