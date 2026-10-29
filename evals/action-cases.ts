@@ -12,6 +12,12 @@ export const FIXTURES = {
   doubleAppointmentClient: "Doble Turno Pruebas",
 } as const;
 
+/**
+ * Horas locales de los turnos de prueba: después del cierre (20:00), para no chocar con la agenda sembrada.
+ * E5 exige que la respuesta mencione las dos: si no las nombra, no encontró los turnos y la pregunta no sirve.
+ */
+export const FIXTURE_TIMES = { single: "20:15", double: ["20:30", "20:45"] } as const;
+
 export type ExpectedProposal =
   | {
       kind: "propose";

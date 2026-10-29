@@ -14,6 +14,7 @@
     "threads": "tsx src/cli/threads.ts",
     "bench": "tsx src/cli/bench.ts",
     "eval:router": "tsx src/cli/eval-router.ts",
+    "eval:actions": "tsx src/cli/eval-actions.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:roles": "tsx src/db/roles.ts",
