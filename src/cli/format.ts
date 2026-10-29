@@ -52,7 +52,7 @@ const RISK_LABELS = { low: "bajo", medium: "medio", high: "alto" } as const;
 export function describeCard(request: ApprovalRequest): string[] {
   const { action, error } = request;
   return [
-    ...(error ? [`  ⚠ ${error}`, ""] : []),
+    ...(error ? [`  ⚠ ${error}`, "  La propuesta original SIGUE pendiente: no se aprobó ni se cambió nada.", ""] : []),
     `  ┌─ Acción propuesta · riesgo ${RISK_LABELS[action.risk]}`,
     `  │ ${action.summary}`,
     `  │ ${action.tool} ${JSON.stringify(action.params)}`,
@@ -77,6 +77,45 @@ export function parseDecisionInput(input: string): { decision: "approve" } | { d
     return comment ? { decision: "reject", comment } : { decision: "reject" };
   }
   return null;
+}
+
+export type EditParse = { ok: true; params: Record<string, unknown> } | { ok: false; error: string };
+
+/** `50` → 50, `true` → true, `"hola"` → "hola", `Llegó un pedido` → texto tal cual. */
+function parseValue(raw: string): unknown {
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * Lo que escribió la persona al editar: un objeto JSON completo, o uno o más cambios `clave=valor` separados por
+ * `;` que se aplican sobre los parámetros actuales (por ejemplo `delta=50` o `delta=50; reason=Llegaron 50`).
+ * Es solo la lectura del renglón: las reglas del negocio las valida después el grafo.
+ */
+export function parseEditInput(input: string, current: Record<string, unknown>): EditParse {
+  const text = input.trim();
+  if (text.startsWith("{")) {
+    try {
+      const parsed: unknown = JSON.parse(text);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return { ok: false, error: "tiene que ser un objeto JSON" };
+      return { ok: true, params: parsed as Record<string, unknown> };
+    } catch (error) {
+      return { ok: false, error: `no es un JSON válido (${(error as Error).message})` };
+    }
+  }
+
+  const changes: Record<string, unknown> = {};
+  for (const part of text.split(";")) {
+    const pair = /^\s*([A-Za-z_]\w*)\s*=\s*(.+?)\s*$/s.exec(part);
+    if (!pair) return { ok: false, error: `no entendí «${part.trim()}»; escribí clave=valor (por ejemplo delta=50) o un objeto JSON` };
+    const [, key, value] = pair;
+    if (!(key! in current)) return { ok: false, error: `«${key}» no es un parámetro de esta acción (${Object.keys(current).join(", ")})` };
+    changes[key!] = parseValue(value!);
+  }
+  return { ok: true, params: { ...current, ...changes } };
 }
 
 /** Resumen de una línea de todo el uso. */

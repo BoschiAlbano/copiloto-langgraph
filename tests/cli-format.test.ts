@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { describeActionResult, describeCard, describeCheckpoint, describeThread, formatWhen, parseDecisionInput } from "../src/cli/format.js";
+import {
+  describeActionResult,
+  describeCard,
+  describeCheckpoint,
+  describeThread,
+  formatWhen,
+  parseDecisionInput,
+  parseEditInput,
+} from "../src/cli/format.js";
 
 describe("tarjeta de aprobación", () => {
   const request = {
@@ -28,9 +36,57 @@ describe("tarjeta de aprobación", () => {
     expect(text.indexOf("Decisión inválida")).toBeLessThan(text.indexOf("Acción propuesta"));
   });
 
+  it("si se vuelve a preguntar, aclara que la propuesta original sigue pendiente", () => {
+    expect(describeCard({ ...request, error: "Edición rechazada: x." }).join("\n")).toContain("SIGUE pendiente");
+    expect(describeCard(request).join("\n")).not.toContain("SIGUE pendiente");
+  });
+
   it("el resultado de la acción marca éxito o fallo", () => {
     expect(describeActionResult({ tool: "cancelAppointment", ok: true, message: "Turno #7 cancelado." })).toBe("  [acción] ✔ Turno #7 cancelado.");
     expect(describeActionResult({ tool: "adjustStock", ok: false, message: "No se pudo." })).toContain("✖");
+  });
+});
+
+describe("parseEditInput", () => {
+  const current = { sku: "AFT-001", delta: 100, reason: "Ingreso de 100 unidades" };
+
+  it("un cambio clave=valor se aplica sobre los parámetros actuales", () => {
+    expect(parseEditInput("delta=50", current)).toEqual({ ok: true, params: { ...current, delta: 50 } });
+    expect(parseEditInput("  delta = -5  ", current)).toEqual({ ok: true, params: { ...current, delta: -5 } });
+  });
+
+  it("varios cambios separados por «;», con texto libre en los valores", () => {
+    expect(parseEditInput("delta=50; reason=Llegaron solo 50, no 100", current)).toEqual({
+      ok: true,
+      params: { sku: "AFT-001", delta: 50, reason: "Llegaron solo 50, no 100" },
+    });
+  });
+
+  it("los valores se leen como JSON si pueden: números, textos entre comillas, booleanos", () => {
+    expect(parseEditInput('reason="50 unidades"', current)).toMatchObject({ ok: true, params: { reason: "50 unidades" } });
+    expect(parseEditInput("delta=1.5", current)).toMatchObject({ ok: true, params: { delta: 1.5 } }); // lo rechaza después el esquema
+    expect(parseEditInput("delta=50x", current)).toMatchObject({ ok: true, params: { delta: "50x" } }); // idem: el esquema decide
+  });
+
+  it("un objeto JSON completo reemplaza todos los parámetros", () => {
+    expect(parseEditInput('{"sku":"AFT-001","delta":50,"reason":"Llegaron 50"}', current)).toEqual({
+      ok: true,
+      params: { sku: "AFT-001", delta: 50, reason: "Llegaron 50" },
+    });
+  });
+
+  it("lo que no se puede leer se informa y no produce parámetros", () => {
+    const bad = ['{"sku":"AFT-001","delta":50,}', '{"delta":50', "{}x", "50", "s", "delta", "delta=", "=50", "delta=50;;", "9delta=5"];
+    for (const input of bad) {
+      const result = parseEditInput(input, current);
+      expect(result.ok, input).toBe(false);
+    }
+    expect(parseEditInput('{"delta":50,}', current)).toMatchObject({ ok: false, error: expect.stringContaining("no es un JSON válido") });
+    expect(parseEditInput("[1,2]", current)).toMatchObject({ ok: false });
+  });
+
+  it("no inventa parámetros: una clave que no existe se informa", () => {
+    expect(parseEditInput("cantidad=50", current)).toMatchObject({ ok: false, error: expect.stringContaining("no es un parámetro") });
   });
 });
 

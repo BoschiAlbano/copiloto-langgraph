@@ -7,7 +7,15 @@ import { continueTurn, resumeTurn, runTurn, type TurnResult } from "../graph/run
 import { newThreadId, parseThreadId } from "../graph/thread-id.js";
 import { conversationMessages, getStatus } from "../graph/threads.js";
 import { costOfUsage, mergeUsage, type ModelUsage } from "../graph/usage-tracker.js";
-import { describeActionResult, describeCard, describeUsagePerModel, describeUsageTotal, parseDecisionInput, usd } from "./format.js";
+import {
+  describeActionResult,
+  describeCard,
+  describeUsagePerModel,
+  describeUsageTotal,
+  parseDecisionInput,
+  parseEditInput,
+  usd,
+} from "./format.js";
 
 let env;
 try {
@@ -134,7 +142,7 @@ const rl = createInterface({ input: process.stdin, output: process.stdout });
 let closed = false;
 rl.on("close", () => (closed = true));
 
-const promptText = () => (editing ? "Parámetros (JSON): " : awaiting ? "¿Aprobás? [s/n/e]: " : "Vos: ");
+const promptText = () => (editing ? "Cambios (clave=valor o JSON): " : awaiting ? "¿Aprobás? [s/n/e]: " : "Vos: ");
 rl.setPrompt(promptText());
 rl.prompt();
 
@@ -144,21 +152,20 @@ for await (const line of rl) {
   if (input.toLowerCase() === "salir") break;
 
   if (editing) {
-    // Los parámetros nuevos pasan por las mismas reglas que la propuesta: si no valen, el grafo vuelve a preguntar.
-    editing = false;
     if (!input) {
-      console.log("Edición cancelada.\n");
+      editing = false;
+      console.log("Edición cancelada: no se cambió nada y la acción sigue esperando tu decisión.\n");
       showCard(awaiting!);
     } else {
-      try {
-        const params = JSON.parse(input) as unknown;
-        if (typeof params !== "object" || params === null || Array.isArray(params)) throw new Error("tiene que ser un objeto JSON");
-        await decide({ decision: "edit", params: params as Record<string, unknown> });
-      } catch (error) {
-        if (error instanceof SyntaxError || (error as Error).message.startsWith("tiene que ser")) {
-          console.log(`No es un JSON válido (${(error as Error).message}). Probá de nuevo con la opción e.\n`);
-          showCard(awaiting!);
-        } else throw error;
+      const edit = parseEditInput(input, awaiting!.action.params);
+      if (!edit.ok) {
+        // Un error de lectura NO devuelve al «¿Aprobás?»: se sigue editando, así un «s» apurado no aprueba la propuesta original.
+        console.log(`✖ No se pudo leer el cambio: ${edit.error}.`);
+        console.log("  Seguís editando (no se aprobó ni se cambió nada): probá de nuevo, o dejá el renglón vacío para cancelar.\n");
+      } else {
+        editing = false;
+        // Los parámetros nuevos pasan por las mismas reglas que la propuesta: si no valen, el grafo vuelve a preguntar.
+        await decide({ decision: "edit", params: edit.params });
       }
     }
   } else if (awaiting) {
@@ -167,7 +174,8 @@ for await (const line of rl) {
       if (input) console.log("Este hilo espera tu decisión. Respondé s (aprobar), n (rechazar, con motivo opcional) o e (editar).\n");
     } else if (decision.decision === "edit") {
       console.log(`Parámetros actuales: ${JSON.stringify(awaiting.action.params)}`);
-      console.log("Escribí los parámetros completos en una línea (JSON), o dejá el renglón vacío para cancelar.");
+      console.log("Escribí qué cambiar: clave=valor (por ejemplo delta=50; se pueden separar varios con «;») o el objeto JSON completo.");
+      console.log("Con el renglón vacío se cancela la edición. Lo editado se ejecuta apenas es válido.");
       editing = true;
     } else await decide(decision);
   } else if (input.toLowerCase() === "/continuar") {
