@@ -6,6 +6,8 @@ const envSchema = z.object({
   MODEL_AGENT: z.string().min(1).default("claude-haiku-5-5"),
   // El router corre en cada turno: conviene un modelo barato.
   MODEL_ROUTER: z.string().min(1).default("claude-haiku-5-5"),
+  // Escribe la «Lectura» de los reportes (fase 6). Las cifras no pasan por este modelo: las arma el código.
+  MODEL_REPORT: z.string().min(1).default("claude-haiku-5-5"),
   // Rol de solo lectura (copilot_reader): lo usan las herramientas del agente.
   DATABASE_URL_READ: z.string().min(1),
   // Rol copilot_checkpointer: guarda y lee los hilos de conversación, nada más.

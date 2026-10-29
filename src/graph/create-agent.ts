@@ -5,7 +5,8 @@ import { makeReadTools } from "../tools/index.js";
 import { makeActionRunner } from "./action-runner.js";
 import { createCheckpointing } from "./checkpointing.js";
 import { buildGraph } from "./index.js";
-import { claude, makeClarifyModel, makeRouterModel } from "./models.js";
+import { claude, makeClarifyModel, makeReportModel, makeReportPlanModel, makeRouterModel } from "./models.js";
+import { runSection } from "./report/sections.js";
 
 export type Agent = ReturnType<typeof createAgent>;
 
@@ -16,6 +17,7 @@ export type Agent = ReturnType<typeof createAgent>;
  * - agente de acciones: MODEL_AGENT con las mismas herramientas de lectura y las DEFINICIONES de las cuatro
  *   acciones. Las acciones se ejecutan solo tras una aprobación, con el rol copilot_actions;
  * - charla: MODEL_AGENT sin herramientas;
+ * - reportes: MODEL_ROUTER elige el período, tres secciones leen la base a la vez (sin modelo) y MODEL_REPORT escribe la «Lectura»;
  * - hilos: el estado se guarda en Postgres con el rol copilot_checkpointer.
  */
 export function createAgent(env: Env) {
@@ -31,9 +33,13 @@ export function createAgent(env: Env) {
       action: claude(env, env.MODEL_AGENT).bindTools([...tools, ...ACTION_DEFINITIONS]),
       chat: claude(env, env.MODEL_AGENT),
       clarify: makeClarifyModel(env),
+      reportPlan: makeReportPlanModel(env),
+      report: makeReportModel(env),
     },
     tools,
     actions: makeActionRunner(db, actionsDb),
+    // Las secciones de un reporte solo LEEN: usan el mismo cliente de solo lectura que las herramientas.
+    reportSections: (section, reportId, range) => runSection(section, reportId, range, db),
     checkpointer: checkpointing.saver,
   });
   return {
