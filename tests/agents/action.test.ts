@@ -3,16 +3,18 @@ import { tool } from "@langchain/core/tools";
 import { Command, MemorySaver } from "@langchain/langgraph";
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
-import type { ApprovalRequest } from "../src/graph/approval.js";
-import { routeAfterActionAgent, routeAfterApproval, routeAfterPropose, routeAfterTools } from "../src/graph/index.js";
-import { makeState } from "../src/graph/state.js";
-import { fakeActions } from "./helpers/actions.js";
-import { buildTestGraph } from "./helpers/graph.js";
-import { scriptedModel, toolCall } from "./helpers/models.js";
+import { buildActionGraph, routeAfterActionAgent, routeAfterApproval, routeAfterPropose } from "../../src/agents/action.js";
+import { buildQueryGraph } from "../../src/agents/query.js";
+import type { ApprovalRequest } from "../../src/graph/approval.js";
+import { makeState } from "../../src/graph/state.js";
+import { fakeActions } from "../helpers/actions.js";
+import { scriptedModel, toolCall } from "../helpers/models.js";
 
 // Flujo completo de aprobación con modelos falsos y un ejecutor en memoria (sin base): lo que se prueba
 // acá es la mecánica del grafo (pausa, decisión, reanudación). Las reglas del negocio y los efectos en la
 // base se prueban en tests/actions-prepare.test.ts y tests/writes/.
+// Desde la fase 7 se prueba sobre el subgrafo de acciones SOLO (CA3), con su propio checkpointer: sin router ni
+// supervisor. El paso por el grafo completo está en tests/supervisor-graph.test.ts.
 
 let consultas = 0;
 const findClient = tool(async () => (consultas++, JSON.stringify({ clients: [{ id: 3, name: "Ana Pérez" }] })), {
@@ -24,19 +26,12 @@ const findClient = tool(async () => (consultas++, JSON.stringify({ clients: [{ i
 const THREAD = { configurable: { thread_id: "hilo-acciones" } };
 const types = (messages: BaseMessage[]) => messages.map((m) => m.type);
 
-/** Grafo de acciones: el agente de consultas y el de acciones son modelos distintos para ver cuál se usa. */
-function setup(actionScript: ConstructorParameters<typeof Array>[0] extends never ? never : Parameters<typeof scriptedModel>[0]) {
+/** Subgrafo de acciones solo. El modelo de consultas existe para comprobar que nunca se usa. */
+function setup(actionScript: Parameters<typeof scriptedModel>[0]) {
   const action = scriptedModel(actionScript);
   const query = scriptedModel([new AIMessage("respuesta de consultas")]);
   const actions = fakeActions();
-  const graph = buildTestGraph({
-    model: query.model,
-    actionModel: action.model,
-    tools: [findClient],
-    actions: actions.runner,
-    intent: "action",
-    checkpointer: new MemorySaver(),
-  });
+  const graph = buildActionGraph({ model: action.model, tools: [findClient], actions: actions.runner, checkpointer: new MemorySaver() });
   return { graph, action, query, ...actions };
 }
 
@@ -302,7 +297,7 @@ describe("las acciones no se pueden ejecutar por otro camino (CA1 b)", () => {
   it("una acción pedida en la rama de consultas llega a tools y solo produce 'la herramienta no existe'", async () => {
     const query = scriptedModel([cancelCall("zzz"), new AIMessage("No pude.")]);
     const actions = fakeActions();
-    const graph = buildTestGraph({ model: query.model, tools: [findClient], actions: actions.runner, intent: "query", checkpointer: new MemorySaver() });
+    const graph = buildQueryGraph({ model: query.model, tools: [findClient], checkpointer: new MemorySaver() });
     const result = await graph.invoke(start(), THREAD);
 
     expect(actions.execute).not.toHaveBeenCalled();
@@ -325,11 +320,11 @@ describe("decisiones de ruteo", () => {
     expect(routeAfterActionAgent(withCalls("findClient", "adjustStock"))).toBe("propose_action");
   });
 
-  it("routeAfterTools vuelve al agente que preguntó, según la intención", () => {
-    expect(routeAfterTools(makeState([], { intent: "action" }))).toBe("action_agent");
-    for (const intent of ["query", "chat", "report", "unclear", undefined] as const) {
-      expect(routeAfterTools(makeState([], { intent }))).toBe("agent");
-    }
+  it("las consultas vuelven siempre a action_agent: el subgrafo tiene su propio tools y no mira intent (fase 7)", async () => {
+    const t = setup([toolCall("q1", "findClient", { query: "ana" }), new AIMessage("¿Cuál de los turnos?")]);
+    const path: string[] = [];
+    for await (const chunk of await t.graph.stream(start(), { ...THREAD, streamMode: "updates" })) path.push(...Object.keys(chunk));
+    expect(path).toEqual(["action_agent", "tools", "action_agent"]);
   });
 
   it("routeAfterPropose y routeAfterApproval", () => {
@@ -344,5 +339,33 @@ describe("decisiones de ruteo", () => {
       expect(routeAfterApproval(makeState([], { approval: { actionId: "x", decision } }))).toBe("execute_action");
     }
     expect(routeAfterApproval(makeState([], { approval: null }))).toBe("await_approval"); // sin decisión: nunca se ejecuta
+  });
+});
+
+describe("fase 7: el subgrafo de acciones solo", () => {
+  it("en un pedido de varias partes el agente recibe solo su acción como tarea (R7)", async () => {
+    const action = scriptedModel([cancelCall(), new AIMessage("Listo.")]);
+    const graph = buildActionGraph({ model: action.model, tools: [findClient], actions: fakeActions().runner, checkpointer: new MemorySaver() });
+    const plan = {
+      tasks: [
+        { id: "1", intent: "action" as const, request: "cancelá el turno 7", status: "running" as const, startedAt: 1 },
+        { id: "2", intent: "query" as const, request: "decime los turnos de mañana", status: "pending" as const },
+      ],
+    };
+    await graph.invoke({ ...start("cancelá el turno 7 y decime los turnos de mañana"), plan }, THREAD);
+    expect(action.calls[0]![0]!.text).toContain("A vos te toca solo esto: «cancelá el turno 7»");
+  });
+
+  it("la propuesta pausada sobrevive a otra instancia del subgrafo con el mismo checkpointer, y se aprueba ahí", async () => {
+    const saver = new MemorySaver();
+    const actions = fakeActions();
+    const first = buildActionGraph({ model: scriptedModel([cancelCall()]).model, tools: [], actions: actions.runner, checkpointer: saver });
+    await first.invoke(start(), THREAD);
+
+    const second = buildActionGraph({ model: scriptedModel([new AIMessage("Turno cancelado.")]).model, tools: [], actions: actions.runner, checkpointer: saver });
+    expect((await second.getState(THREAD)).values.pendingAction).toMatchObject({ id: "hilo-acciones:toolu_1" });
+    const done = await second.invoke(new Command({ resume: { decision: "approve" } }), THREAD);
+    expect(actions.executed).toHaveLength(1);
+    expect(done.messages.at(-1)?.text).toBe("Turno cancelado.");
   });
 });

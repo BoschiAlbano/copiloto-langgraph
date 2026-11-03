@@ -11,7 +11,12 @@ import {
   type ApprovalRequest,
   type PendingAction,
 } from "../approval.js";
-import type { AgentStateType } from "../state.js";
+/** Lo que leen los nodos de la aprobación: el historial y la propuesta y la decisión (privadas del subgrafo de acciones). */
+interface ActionNodeState {
+  messages: BaseMessage[];
+  pendingAction?: PendingAction | null;
+  approval?: Approval | null;
+}
 
 // Los tres nodos del flujo de aprobación. Se separan por una razón de LangGraph: cuando un nodo con
 // `interrupt` se reanuda, se vuelve a ejecutar DESDE EL PRINCIPIO. Por eso:
@@ -54,7 +59,7 @@ interface ProposeUpdate {
 
 export function makeProposeActionNode(runner: Pick<ActionRunner, "prepare">, options: { now?: () => Date } = {}) {
   const now = options.now ?? (() => new Date());
-  return async (state: AgentStateType, config?: RunnableConfig): Promise<ProposeUpdate> => {
+  return async (state: ActionNodeState, config?: RunnableConfig): Promise<ProposeUpdate> => {
     const last = lastAiMessage(state.messages);
     const calls = last?.tool_calls ?? [];
     const cleared = { pendingAction: null, approval: null };
@@ -92,7 +97,7 @@ export function makeProposeActionNode(runner: Pick<ActionRunner, "prepare">, opt
 
 export function makeApprovalNode(runner: Pick<ActionRunner, "prepare">, options: { now?: () => Date } = {}) {
   const now = options.now ?? (() => new Date());
-  return async (state: AgentStateType): Promise<{ approval: Approval; pendingAction?: PendingAction }> => {
+  return async (state: ActionNodeState): Promise<{ approval: Approval; pendingAction?: PendingAction }> => {
     const action = state.pendingAction;
     if (!action) throw new Error("approval necesita una acción propuesta.");
 
@@ -149,7 +154,7 @@ export class ApprovalRequiredError extends Error {
 
 export function makeExecuteActionNode(runner: Pick<ActionRunner, "execute">, options: { now?: () => Date } = {}) {
   const now = options.now ?? (() => new Date());
-  return async (state: AgentStateType, config?: RunnableConfig) => {
+  return async (state: ActionNodeState, config?: RunnableConfig) => {
     const { pendingAction: action, approval } = state;
     // Barrera de último momento: sin una decisión válida sobre ESTA acción no se llama a la base.
     if (!action) throw new ApprovalRequiredError("no hay ninguna acción propuesta.");

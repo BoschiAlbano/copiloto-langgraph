@@ -52,6 +52,20 @@ export const ReportState = new StateSchema({
 });
 export type ReportStateType = typeof ReportState.State;
 
+/**
+ * Acciones: la propuesta y la decisión son PRIVADAS. Viven en los checkpoints del subgrafo, sobreviven a la pausa
+ * (`interrupt`) y a un reinicio, y la tarjeta se reconstruye leyendo el estado del subgrafo (`getStatus`).
+ */
+export const ActionState = new StateSchema({
+  messages: MessagesValue,
+  plan: planSchema.optional(),
+  // Acción que el modelo pidió y espera la decisión de la persona (fase 5). Sin reducer; `null` cuando no hay ninguna.
+  pendingAction: pendingActionSchema.nullable().optional(),
+  // Decisión ya procesada sobre esa acción. `null` cuando no hay ninguna.
+  approval: approvalSchema.nullable().optional(),
+});
+export type ActionStateType = typeof ActionState.State;
+
 /** Estado completo para llamar a un nodo suelto (fuera de un grafo), por ejemplo en tests y evaluaciones. */
 export const makeState = (messages: BaseMessage[], overrides: Partial<AgentStateType> = {}): AgentStateType => ({
   messages,

@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
-import { SystemMessage } from "@langchain/core/messages";
 import { describeNow } from "../../tools/dates.js";
-import type { AgentStateType } from "../state.js";
+import { agentInput, type TaskState } from "../plan.js";
 import type { AgentModel } from "./agent.js";
 
 const actionPrompt = readFileSync(new URL("../prompts/action.md", import.meta.url), "utf8");
@@ -15,8 +14,8 @@ export const renderActionPrompt = (now: Date) => actionPrompt.replace("{{current
  */
 export function makeActionAgentNode(model: AgentModel, options: { now?: () => Date } = {}) {
   const now = options.now ?? (() => new Date());
-  return async (state: AgentStateType) => {
-    const reply = await model.invoke([new SystemMessage(renderActionPrompt(now())), ...state.messages]);
+  return async (state: TaskState) => {
+    const reply = await model.invoke(agentInput(renderActionPrompt(now()), state));
     return { messages: [reply] };
   };
 }
