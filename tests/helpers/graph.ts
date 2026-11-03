@@ -7,15 +7,27 @@ import type { ActionRunner } from "../../src/graph/nodes/actions.js";
 import type { SectionRunner } from "../../src/graph/nodes/report.js";
 import type { RouterModel } from "../../src/graph/nodes/router.js";
 
-/** Router falso que siempre decide lo mismo (o una secuencia, una intención por llamada). */
-export function fixedRouter(intents: Intent | Intent[] = "query") {
+/** Salida del router (formato de la fase 7) para un pedido de una sola tarea. */
+export const routed = (intent: Intent, reason = "decisión de prueba") => ({ reason, tasks: [{ intent, request: "pedido de prueba" }] });
+
+/** Salida del router para un pedido de varias partes: `[intención, pedido]` por tarea. */
+export const planned = (...tasks: [Intent, string][]) => ({
+  reason: "pedido de varias partes",
+  tasks: tasks.map(([intent, request]) => ({ intent, request })),
+});
+
+/**
+ * Router falso que siempre decide lo mismo (o una secuencia, una decisión por llamada). Cada decisión es una
+ * intención (un pedido de una sola tarea) o una salida completa armada con `planned`.
+ */
+export function fixedRouter(intents: Intent | (Intent | ReturnType<typeof planned>)[] | ReturnType<typeof planned> = "query") {
   const calls: unknown[][] = [];
-  const queue = Array.isArray(intents) ? [...intents] : null;
+  const queue = Array.isArray(intents) ? [...intents] : [intents];
   const model: RouterModel = {
     async invoke(messages) {
       calls.push(messages);
-      const intent = queue ? (queue.length > 1 ? queue.shift()! : queue[0]!) : (intents as Intent);
-      return { parsed: { reason: "decisión de prueba", intent } };
+      const next = queue.length > 1 ? queue.shift()! : queue[0]!;
+      return { parsed: typeof next === "string" ? routed(next) : next };
     },
   };
   return { model, calls };
@@ -65,7 +77,7 @@ export function buildTestGraph({
   actions?: ActionRunner;
   reportPlan?: RouterModel;
   reportSections?: SectionRunner;
-  intent?: Intent | Intent[];
+  intent?: Parameters<typeof fixedRouter>[0];
   now?: () => Date;
   checkpointer?: BaseCheckpointSaver;
 }) {

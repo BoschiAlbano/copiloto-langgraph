@@ -3,6 +3,7 @@ import { MessagesValue, ReducedValue, StateSchema } from "@langchain/langgraph";
 import { z } from "zod";
 import { approvalSchema, pendingActionSchema } from "./approval.js";
 import { INTENTS } from "./intents.js";
+import { planSchema } from "./plan.js";
 import { mergeParts, partSchema, reportSchema } from "./report/state.js";
 
 // MessagesValue es un campo con reducer: cada nodo devuelve mensajes nuevos
@@ -13,6 +14,8 @@ export const AgentState = new StateSchema({
   intent: z.enum(INTENTS).optional(),
   // Por qué el router eligió esa ruta: se muestra en la terminal y servirá al inspeccionar checkpoints.
   intentReason: z.string().optional(),
+  // Las tareas del turno (fase 7): las escribe el router y las recorre el supervisor. Se reemplaza en cada mensaje.
+  plan: planSchema.optional(),
   // Acción que el modelo pidió y espera la decisión de la persona (fase 5). Sin reducer; `null` cuando no hay ninguna.
   pendingAction: pendingActionSchema.nullable().optional(),
   // Decisión ya procesada sobre esa acción. `null` cuando no hay ninguna.
@@ -31,6 +34,7 @@ export const makeState = (messages: BaseMessage[], overrides: Partial<AgentState
   messages,
   intent: undefined,
   intentReason: undefined,
+  plan: undefined,
   pendingAction: undefined,
   approval: undefined,
   report: undefined,

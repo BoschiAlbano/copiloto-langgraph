@@ -11,6 +11,7 @@ import { ROUTER_CASES } from "../evals/router-cases.js";
 import type { Intent } from "../src/graph/intents.js";
 import type { AgentModel } from "../src/graph/nodes/agent.js";
 import type { RouterModel } from "../src/graph/nodes/router.js";
+import { routed } from "./helpers/graph.js";
 import { AIMessage } from "@langchain/core/messages";
 
 /** Resultados sintéticos: aciertan todos salvo los ids indicados, que devuelven otra intención. */
@@ -84,7 +85,7 @@ describe("evaluateRouter y evaluateClarifications", () => {
         const text = messages[1]!.text;
         const last = [...byMessage.keys()].find((m) => text.trimEnd().endsWith(`${m}\n\nClasificá el último mensaje de la persona.`));
         seen.push(last ?? "?");
-        return { parsed: { reason: "ok", intent: (last ? byMessage.get(last) : "chat") as Intent } };
+        return { parsed: routed((last ? byMessage.get(last) : "chat") as Intent, "ok") };
       },
     };
     const out = await evaluateRouter(model);

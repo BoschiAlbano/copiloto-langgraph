@@ -1,8 +1,7 @@
 import { readFileSync } from "node:fs";
 import { HumanMessage, SystemMessage, type BaseMessage } from "@langchain/core/messages";
-import { routerOutputSchema } from "../intents.js";
+import { normalizePlan, PLAN_FALLBACK_REASON, type TaskState } from "../plan.js";
 import { buildRouterContext, formatTranscript } from "../router-context.js";
-import type { AgentStateType } from "../state.js";
 
 /**
  * Lo que el nodo necesita del modelo del router: algo que devuelva `{ parsed }`.
@@ -15,13 +14,13 @@ export interface RouterModel {
 
 const routerPrompt = readFileSync(new URL("../prompts/router.md", import.meta.url), "utf8");
 
-export const ROUTER_FALLBACK_REASON = "Respaldo: la salida del router no cumplió el esquema.";
+export const ROUTER_FALLBACK_REASON = PLAN_FALLBACK_REASON;
 
 /**
- * El router clasifica el último mensaje y escribe `intent` en el estado. Una arista
- * condicional (routeByIntent) lee ese campo y elige el próximo nodo.
+ * El router parte el último mensaje en tareas y escribe el plan en el estado (fase 7), ya normalizado por el código
+ * (`normalizePlan`). El supervisor recorre ese plan. `intent` es la intención de la primera tarea.
  *
- * Si la salida es inválida se usa `query`: es la rama de solo lectura, la menos riesgosa.
+ * Si la salida es inválida se usa una sola tarea `query`: es la rama de solo lectura, la menos riesgosa.
  * Un error real de la API (red, clave, cuota) NO se atrapa: sube hasta la terminal.
  */
 export function makeRouterNode(
@@ -29,18 +28,16 @@ export function makeRouterNode(
   options: { warn?: (message: string) => void } = {},
 ) {
   const warn = options.warn ?? ((message: string) => console.warn(message));
-  return async (state: AgentStateType) => {
+  return async (state: Pick<TaskState, "messages">) => {
     const transcript = formatTranscript(buildRouterContext(state.messages));
     const result = await model.invoke([
       new SystemMessage(routerPrompt),
       new HumanMessage(`Conversación reciente:\n${transcript}\n\nClasificá el último mensaje de la persona.`),
     ]);
 
-    const output = routerOutputSchema.safeParse(result?.parsed);
-    if (!output.success) {
-      warn("[router] Salida inválida del modelo: se usa la ruta 'query' como respaldo.");
-      return { intent: "query" as const, intentReason: ROUTER_FALLBACK_REASON };
-    }
-    return { intent: output.data.intent, intentReason: output.data.reason };
+    const last = state.messages.findLast((m) => HumanMessage.isInstance(m))?.text ?? "";
+    const { plan, intent, reason, fallback } = normalizePlan(result?.parsed, last);
+    if (fallback) warn("[router] Salida inválida del modelo: se usa la ruta 'query' como respaldo.");
+    return { intent, intentReason: reason, plan };
   };
 }

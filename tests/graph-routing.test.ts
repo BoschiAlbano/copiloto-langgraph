@@ -8,7 +8,7 @@ import { AGENT_RECURSION_LIMIT } from "../src/graph/limits.js";
 import type { AgentModel } from "../src/graph/nodes/agent.js";
 import type { RouterModel } from "../src/graph/nodes/router.js";
 import { makeState } from "../src/graph/state.js";
-import { unexpectedActions } from "./helpers/graph.js";
+import { routed, unexpectedActions } from "./helpers/graph.js";
 
 /** Modelo de texto falso: contesta con un texto fijo y cuenta las llamadas. */
 function textModel(text: string) {
@@ -36,7 +36,7 @@ const emptySales = {
   byPaymentMethod: [],
   byItemType: { products: { units: 0, revenue: 0 }, services: { units: 0, revenue: 0 } },
 };
-const route = (intent: Intent) => ({ parsed: { reason: `motivo ${intent}`, intent } });
+const route = (intent: Intent) => ({ parsed: routed(intent, `motivo ${intent}`) });
 
 let toolRuns = 0;
 const getStock = tool(async () => { toolRuns++; return JSON.stringify({ lowCount: 2 }); }, {

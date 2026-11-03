@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
 import { describe, expect, it, vi } from "vitest";
 import { ROUTER_CASES } from "../evals/router-cases.js";
-import { INTENTS } from "../src/graph/intents.js";
+import { INTENTS, type Intent } from "../src/graph/intents.js";
+import { planned, routed } from "./helpers/graph.js";
 import { makeRouterNode, ROUTER_FALLBACK_REASON, type RouterModel } from "../src/graph/nodes/router.js";
 import { makeState } from "../src/graph/state.js";
 
@@ -22,21 +23,32 @@ const state = (messages: BaseMessage[]) => makeState(messages);
 
 describe("nodo router", () => {
   it("escribe intent e intentReason a partir de la salida estructurada", async () => {
-    const { model } = fakeRouter({ parsed: { reason: "pide un dato puntual", intent: "query" } });
+    const { model } = fakeRouter({ parsed: routed("query", "pide un dato puntual") });
     const update = await makeRouterNode(model)(state([new HumanMessage("¿cuántos turnos hay?")]));
-    expect(update).toEqual({ intent: "query", intentReason: "pide un dato puntual" });
+    expect(update).toEqual({
+      intent: "query",
+      intentReason: "pide un dato puntual",
+      plan: { tasks: [{ id: "1", intent: "query", request: "pedido de prueba", status: "pending" }] },
+    });
+  });
+
+  it("escribe el plan ya normalizado (fase 7): la acción primero, sin la charla", async () => {
+    const { model } = fakeRouter({ parsed: planned(["chat", "gracias"], ["query", "stock del gel"], ["action", "registrá la venta"]) });
+    const update = await makeRouterNode(model)(state([new HumanMessage("gracias; stock del gel y registrá la venta")]));
+    expect(update.intent).toBe("action");
+    expect(update.plan.tasks.map((t) => [t.intent, t.request])).toEqual([["action", "registrá la venta"], ["query", "stock del gel"]]);
   });
 
   it("acepta cada una de las cinco intenciones", async () => {
     for (const intent of INTENTS) {
-      const { model } = fakeRouter({ parsed: { reason: "motivo", intent } });
+      const { model } = fakeRouter({ parsed: routed(intent, "motivo") });
       const update = await makeRouterNode(model)(state([new HumanMessage("x")]));
       expect(update.intent, intent).toBe(intent);
     }
   });
 
   it("le manda al modelo el prompt y una transcripción en un solo mensaje, sin mensajes de herramientas", async () => {
-    const { model, calls } = fakeRouter({ parsed: { reason: "m", intent: "chat" } });
+    const { model, calls } = fakeRouter({ parsed: routed("chat", "m") });
     await makeRouterNode(model)(
       state([
         new HumanMessage("¿cuántos turnos hay?"),
@@ -60,15 +72,20 @@ describe("nodo router", () => {
       ["parsed en null", { parsed: null }],
       ["sin parsed", {}],
       ["resultado vacío", undefined],
-      ["intención inventada", { parsed: { reason: "x", intent: "borrar" } }],
-      ["sin motivo", { parsed: { intent: "query" } }],
+      ["intención inventada", { parsed: routed("borrar" as Intent, "x") }],
+      ["sin motivo", { parsed: { tasks: [{ intent: "query", request: "x" }] } }],
+      ["formato de la fase 3", { parsed: { reason: "x", intent: "query" } }],
     ];
     for (const [label, result] of invalid) {
       it(label, async () => {
         const warn = vi.fn();
         const { model } = fakeRouter(result);
         const update = await makeRouterNode(model, { warn })(state([new HumanMessage("x")]));
-        expect(update).toEqual({ intent: "query", intentReason: ROUTER_FALLBACK_REASON });
+        expect(update).toEqual({
+          intent: "query",
+          intentReason: ROUTER_FALLBACK_REASON,
+          plan: { tasks: [{ id: "1", intent: "query", request: "x", status: "pending" }] },
+        });
         expect(warn).toHaveBeenCalledOnce();
       });
     }

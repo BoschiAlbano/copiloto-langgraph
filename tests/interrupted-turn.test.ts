@@ -8,7 +8,7 @@ import type { RouterModel } from "../src/graph/nodes/router.js";
 import { continueTurn, runTurn, ThreadPendingError } from "../src/graph/run-turn.js";
 import { getStatus } from "../src/graph/threads.js";
 import { checkpointsUrl, openCheckpointing } from "./helpers/checkpointing.js";
-import { unexpectedActions, unexpectedPlan, unexpectedSections } from "./helpers/graph.js";
+import { routed, unexpectedActions, unexpectedPlan, unexpectedSections } from "./helpers/graph.js";
 import { echoModel, toolCall } from "./helpers/models.js";
 import { TestThreads } from "./helpers/threads.js";
 
@@ -40,7 +40,7 @@ function flakyRouter(failOnCalls: number[]) {
   const model: RouterModel = {
     async invoke() {
       if (failOnCalls.includes(calls++)) throw new Error("529 Overloaded");
-      return { parsed: { reason: "consulta", intent: "query" } };
+      return { parsed: routed("query", "consulta") };
     },
   };
   return model;
