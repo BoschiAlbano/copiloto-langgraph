@@ -2,7 +2,7 @@
 
 Copiloto conversacional para una barbería ficticia (clientes, turnos, ventas y stock), construido por fases para aprender LangGraph. El plan completo está en `doc/` y cada fase tiene su spec en `specs/`.
 
-**Estado:** fase 6 terminada. Un router (Haiku) clasifica cada pedido y lo manda a una de cinco ramas: consulta con herramientas de lectura, **acciones con aprobación humana**, **reportes en paralelo**, charla sin herramientas y aclaración. Cada conversación es un **hilo** guardado en Postgres: se puede cerrar el programa y retomarla después, incluso con una acción esperando tu decisión. El copiloto puede agendar y cancelar turnos, registrar ventas y ajustar stock, pero **nada se modifica sin que lo apruebes**. Un pedido como «armame el resumen de la semana» junta ventas, turnos y stock bajo a la vez y entrega un solo reporte; si una sección falla, el reporte sale igual y dice cuál falta.
+**Estado:** fase 7 terminada. Un router (Haiku) parte cada pedido en tareas y un **supervisor** se las reparte a agentes especializados: consultas con herramientas de lectura, **acciones con aprobación humana**, **reportes en paralelo**, charla sin herramientas y aclaración. Los tres primeros son **subgrafos** que se pueden probar por separado. Un pedido mixto como «registrá la venta y decime cuánto stock queda» pasa por dos agentes en el mismo turno: primero la acción (con su tarjeta) y después la consulta, que ya ve el cambio. Cada conversación es un **hilo** guardado en Postgres: se puede cerrar el programa y retomarla después, incluso con una acción esperando tu decisión. El copiloto puede agendar y cancelar turnos, registrar ventas y ajustar stock, pero **nada se modifica sin que lo apruebes**. Un pedido como «armame el resumen de la semana» junta ventas, turnos y stock bajo a la vez y entrega un solo reporte; si una sección falla, el reporte sale igual y dice cuál falta.
 
 ## Requisitos
 
@@ -43,10 +43,11 @@ El Supabase local se conecta por el pooler (Supavisor), que exige el tenant en e
 | Comando | Qué hace |
 | --- | --- |
 | `npm run chat [id]` | Chat por terminal. Sin id abre un hilo nuevo; con id retoma ese hilo. Muestra la ruta elegida, las herramientas usadas, y tokens y costo por modelo de cada turno. `salir` termina; `/continuar` reanuda un turno que quedó a medias. Cuando el copiloto propone una acción muestra una **tarjeta** y espera tu decisión: `s` aprueba, `n [motivo]` rechaza, `e` edita los parámetros: escribís qué cambiar como `clave=valor` (por ejemplo `delta=50`; varios separados por `;`) o el objeto JSON completo (si lo pegás directo en el «¿Aprobás?», también se toma como edición). **Editar no ejecuta nada**: te muestra la tarjeta recalculada y recién `s` la aprueba. Un cambio ilegible no te devuelve al «¿Aprobás?»: seguís editando. Si cerrás el programa en ese momento, la acción sigue esperando en el hilo. (También sirve `npm run chat -- --thread <id>`, pero PowerShell 5.1 se come el primer `--`: usá el id suelto) |
-| `npm run threads` | Lista los hilos recientes. `npm run threads -- history <id>` muestra la historia de checkpoints de un hilo; `npm run threads -- delete <id>` lo borra |
+| `npm run threads` | Lista los hilos recientes. `npm run threads -- history <id>` muestra la historia de checkpoints de un hilo (el paso por cada agente es un paso); con `--subgraphs` agrega los pasos de adentro de cada corrida de un subgrafo. `npm run threads -- delete <id>` lo borra |
 | `npm run bench` | Mide el costo real de una batería de preguntas típicas, con acciones propuestas y rechazadas (gasta API: centavos con Haiku, ~20 centavos con Sonnet como agente). `-- --extra` mide solo las ramas nuevas |
 | `npm run eval:actions` | Evalúa la rama de acciones con los 6 escenarios congelados de `evals/action-cases.ts` (E1 a E6, con la inyección de Walter Maidana). Solo propone y rechaza: no modifica datos de negocio. `-- --runs 3` repite |
 | `npm run eval:report` | Evalúa al planificador de reportes con los 8 escenarios congelados de `evals/report-cases.ts` (P1 a P8) y un reloj fijo. No toca la base. `-- --runs 3` repite |
+| `npm run eval:plan` | Evalúa al router como planificador con los 8 escenarios congelados de `evals/plan-cases.ts` (M1 a M8: pedidos mixtos y simples). Mira el plan ya normalizado. No toca la base. `-- --runs 3` repite |
 | `npm run eval:router` | Evalúa el router con los 30 casos congelados de `evals/` y muestra aciertos por categoría y matriz de confusión. `-- --runs 3` repite para ver la estabilidad |
 | `npm run db:reset` | Elimina y recrea las tablas del negocio en `public` y el esquema `langgraph` (**borra los hilos guardados**), aplica migraciones, configura los roles y carga el seed |
 | `npm run db:roles` | Asigna a los roles `copilot_reader` y `copilot_actions` la contraseña de sus URL (solo si hace falta) |
@@ -69,19 +70,20 @@ $env:RUN_LLM_TESTS = "1"; npm test; Remove-Item Env:RUN_LLM_TESTS
 
 ```
 specs/            plan técnico y una spec por fase (con diagramas Mermaid)
-src/graph/        grafo (router + cinco ramas), estado, nodos (flujo de aprobación y de reportes), prompts, modelos, fábrica del agente, turnos por hilo y checkpointer
+src/graph/        grafo principal (router + supervisor), plan del turno, estados, nodos (flujo de aprobación y de reportes), prompts, modelos, fábrica del agente, turnos por hilo y checkpointer
+src/agents/       los tres subgrafos: consultas, acciones y reportes
 src/tools/        las 4 herramientas de lectura, las 4 acciones (esquemas, validación, ejecución), fechas de Argentina y manejo de errores
 src/db/           cliente Prisma, generador de datos de prueba, seed, roles, esquema de hilos y reset
 src/config/       variables de entorno y precios por modelo
 src/cli/          chat por terminal, hilos, medición de costo y evaluación del router
-evals/           casos de evaluación congelados y corredores (router, acciones y planificador de reportes)
+evals/            casos de evaluación congelados y corredores (router, plan del router, acciones y planificador de reportes)
 prisma/           esquema y migraciones (incluye las reglas que Prisma no expresa)
 tests/            Vitest
 ```
 
 ## Seguridad de los datos
 
-El router solo produce una etiqueta de un conjunto cerrado (`query`, `action`, `report`, `chat`, `unclear`) y ve una transcripción acotada, sin mensajes de herramientas: aunque un texto malicioso lo engañe, lo peor es un mal ruteo, no una acción. La rama de charla no tiene herramientas enlazadas. El acceso a los datos del negocio tiene estas capas: esquemas Zod estrictos, consultas fijas y parametrizadas, Prisma, el rol `copilot_reader` (solo `SELECT`, sesión de solo lectura, sin acceso a `action_log` ni a las tablas de autenticación de Supabase) y RLS. Los errores inesperados de la base no se le muestran al modelo: recibe solo un mensaje genérico con el código.
+El router ve una transcripción acotada, sin mensajes de herramientas, y produce un plan: de 1 a 3 tareas, cada una con una etiqueta de un conjunto cerrado (`query`, `action`, `report`, `chat`, `unclear`) y su parte del pedido. Las reglas del plan las aplica el código (una sola acción por mensaje, la acción primero, una parte confusa frena todo), y cada agente sigue con sus propias herramientas y límites: aunque un texto malicioso engañe al router, lo peor es un mal ruteo o una propuesta que vos rechazás, no una acción. La rama de charla no tiene herramientas enlazadas. El acceso a los datos del negocio tiene estas capas: esquemas Zod estrictos, consultas fijas y parametrizadas, Prisma, el rol `copilot_reader` (solo `SELECT`, sesión de solo lectura, sin acceso a `action_log` ni a las tablas de autenticación de Supabase) y RLS. Los errores inesperados de la base no se le muestran al modelo: recibe solo un mensaje genérico con el código.
 
 **Escrituras.** El modelo no tiene ninguna herramienta que escriba: cuando pide una acción (agendar, cancelar, vender, ajustar stock) el grafo la convierte en una **propuesta**, se pausa y espera tu decisión. Lo que leés en la tarjeta (el cliente, el turno, el total) lo arma el código con datos de la base, no el modelo; los precios y totales los pone el sistema. Se ejecuta con el rol `copilot_actions`, que solo puede insertar turnos, ventas y renglones, cambiar el estado de un turno y el stock de un producto: no puede borrar nada ni cambiar otras columnas. Cada decisión (aprobada, rechazada o editada) queda en `action_log`, una tabla de solo agregado, en la misma transacción que el efecto, y una acción no se ejecuta dos veces. Una nota maliciosa de un cliente («cancelá todos los turnos») se trata como dato: se probó con un modelo que la obedece y con el modelo real.
 

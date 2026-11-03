@@ -45,6 +45,13 @@ const CASES: Case[] = [
   { group: "extra", name: "Reporte en paralelo (resumen de la semana)", turns: ["Armame el resumen de la semana."] },
   { group: "extra", name: "Reporte en paralelo (últimos 30 días)", turns: ["Dame un panorama completo del negocio de los últimos 30 días."] },
   { group: "extra", name: "Pedido ambiguo (aclaración)", turns: ["Cancelalo."] },
+  // Pedidos mixtos (fase 7): el supervisor pasa por dos agentes en el mismo turno. La acción se rechaza, como arriba.
+  {
+    group: "extra",
+    name: "Mixto: venta y stock (M1, propuesta y rechazo)",
+    turns: ["Registrá la venta de un gel fijación fuerte en efectivo y decime cuánto stock queda."],
+  },
+  { group: "extra", name: "Mixto: stock y reporte del mes (M3)", turns: ["Decime cuánto stock queda de gel fijación fuerte y armame el resumen del mes."] },
 ];
 
 // `npm run bench -- --extra` mide solo las ramas nuevas (más barato, útil con Sonnet).
@@ -70,7 +77,7 @@ for (const testCase of cases) {
       const turn = await runTurn(agent, threadId, text);
       usage = mergeUsage(usage, turn.summary.usage);
       tools.push(...turn.summary.toolCalls.map((c) => c.name));
-      if (turn.route.intent) routes.push(turn.route.intent);
+      if (turn.route.intent) routes.push((turn.route.tasks ?? []).map((t) => t.intent).join("→") || turn.route.intent);
       if (turn.awaiting) {
         // Se rechaza: tiene las mismas llamadas al modelo que aprobar (el agente contesta una vez más) y no toca datos.
         const decided = await resumeTurn(agent, threadId, { decision: "reject", comment: "medición de costo" });

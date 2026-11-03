@@ -14,8 +14,11 @@ Convención de los diagramas: **línea continua** = arista fija (siempre ocurre)
 | 4 | 7 (los mismos) | 6 | 7 | 13 | `messages`, `intent`, `intentReason` | Checkpointer de Postgres: el estado se guarda por `thread_id` (cambia cómo se compila, no la forma del grafo) |
 | 5 | 10 (`router`, `agent`, `tools`, `chat`, `report_stub`, `clarify`, `action_agent`, `propose_action`, `await_approval`, `execute_action`) | 5 | 16 | 21 | `messages`, `intent`, `intentReason`, `pendingAction`, `approval` | Acciones con aprobación humana: `interrupt`, `Command({ resume })`, rol de escritura acotado y auditoría |
 | 6 | 14 (los de la fase 5 menos `report_stub`, más `plan_report`, `report_sales`, `report_appointments`, `report_stock` y `compose_report`) | 8 | 19 | 27 | `messages`, `intent`, `intentReason`, `pendingAction`, `approval`, `report`, `reportParts` | Reportes en paralelo: fan-out con `Send`, fan-in y un reducer que concatena |
+| 7 | 7 en el principal (`router`, `supervisor`, `query_graph`, `action_graph`, `report_graph`, `chat`, `clarify`); los tres `*_graph` son subgrafos con 2, 5 y 5 nodos | 7 | 6 | 13 (más 4, 10 y 8 dentro de los subgrafos) | principal: `messages`, `intent`, `intentReason`, `plan`, `activeAgent`, `report`; privados: `pendingAction` y `approval` (acciones), `reportParts` (reportes) | Subgrafos con estado compartido y privado, y un supervisor que traspasa el control con `Command`: pedidos mixtos |
 
 Qué cambió de la fase 1 a la 2: el nodo `chat` pasó a llamarse `agent` y ahora puede pedir herramientas; apareció el nodo `tools`; la arista `chat → END` se volvió condicional (`agent → END` solo si no hay llamadas pendientes) y se sumó `tools → agent`, que cierra el ciclo.
+
+Qué cambió de la fase 6 a la 7: el grafo plano se partió en **tres subgrafos** (consultas, acciones y reportes) que el grafo principal usa como nodos, y un **supervisor** reparte entre ellos el plan que arma el router. Los nodos de las fases 2 a 6 siguen existiendo con el mismo nombre, pero adentro de su subgrafo. Cada subgrafo tiene su propio `tools`, así que `routeAfterTools` (que miraba `intent` para saber a quién volver) desapareció. Del estado principal salieron los tres campos que usaba un solo agente (ahora son privados) y entraron `plan` y `activeAgent`.
 
 Qué cambió de la fase 5 a la 6: el último marcador, `report_stub`, se reemplazó por un **fan-out**: `plan_report` lanza con `Send` tres nodos en el mismo paso y un nodo final los consolida (**fan-in**). Se sumaron dos campos al estado y el primero con reducer propio, aparte de `messages`.
 
@@ -319,8 +322,78 @@ flowchart TD
 
 ---
 
+## Fase 7: subgrafos y supervisor (`fase-07`)
+
+```mermaid
+flowchart TD
+    S((START)) -->|"fija"| R["router<br/>Haiku, salida estructurada:<br/>el pedido partido en tareas (plan)"]
+    R -->|"fija"| SV{{"supervisor<br/>código: recorre el plan<br/>y traspasa con Command"}}
+    SV -.->|"query"| Q[["query_graph<br/>agent ⇄ tools"]]
+    SV -.->|"action"| A[["action_graph<br/>action_agent ⇄ tools → propose_action →<br/>await_approval ⟲ → execute_action"]]
+    SV -.->|"report"| P[["report_graph<br/>plan_report → 3 secciones (Send) → compose_report"]]
+    SV -.->|"chat"| C["chat"]
+    SV -.->|"unclear"| CL["clarify"]
+    SV -.->|"sin tareas pendientes"| E((END))
+    Q -->|"fija"| SV
+    A -->|"fija"| SV
+    P -->|"fija"| SV
+    C -->|"fija"| SV
+    CL -->|"fija"| SV
+```
+
+Los nodos con doble borde son **subgrafos**: grafos compilados agregados como un nodo. Se dibujan por dentro en las fases 2 (`agent ⇄ tools`), 5 (aprobación) y 6 (reportes en paralelo); su forma no cambió, solo dónde viven.
+
+**Resumen:** 7 nodos propios en el grafo principal, 2 especiales, 7 aristas fijas y 6 condicionales: **13 conexiones** (comprobado con `getGraphAsync()` en `tests/graph-shape.test.ts`). Las 6 condicionales son los destinos que el supervisor declara en `ends` (cinco agentes y `END`): no hay función de arista, decide el `Command` que devuelve el nodo. Dentro de los subgrafos: consultas 2 nodos y 4 conexiones, acciones 5 y 10, reportes 5 y 8.
+
+| Nodo | Quién lo escribió | Qué hace | Modelo | Escribe en el estado |
+| --- | --- | --- | --- | --- |
+| `router` | Nosotros (`nodes/router.ts`) | Parte el último mensaje en 1 a 3 tareas; el código normaliza el plan (`normalizePlan`: `unclear` anula, la charla se descarta, la acción va primero, una sola acción, consultas unidas) | `MODEL_ROUTER` con salida estructurada | `plan`, `intent` (la de la primera tarea), `intentReason` |
+| `supervisor` | Nosotros (`nodes/supervisor.ts`) | Cierra la tarea que volvió, despacha la siguiente a su agente (con `startedAt`) o termina el turno, con el aviso del plan si lo hay | ninguno | `plan`, `activeAgent` (y el aviso, como mensaje de IA) |
+| `query_graph` | Nosotros (`agents/query.ts`) | Subgrafo de consultas: el ciclo de la fase 2 con su propio `tools` | `MODEL_AGENT` con herramientas de lectura | `messages` |
+| `action_graph` | Nosotros (`agents/action.ts`) | Subgrafo de acciones: el flujo de aprobación de la fase 5; **la pausa ocurre acá adentro** | `MODEL_AGENT` con lectura + definiciones de acciones | `messages` (privados: `pendingAction`, `approval`) |
+| `report_graph` | Nosotros (`agents/report.ts`) | Subgrafo de reportes: el fan-out/fan-in de la fase 6 | `MODEL_ROUTER` (período) y `MODEL_REPORT` («Lectura») | `messages`, `report` (con el estado de cada sección; privado: `reportParts`) |
+| `chat`, `clarify` | Nosotros | Los de la fase 3, ahora vuelven al supervisor | `MODEL_AGENT` / `MODEL_ROUTER`, sin herramientas | `messages` |
+
+| # | Desde | Hasta | Tipo | Cómo se declara (`src/graph/index.ts`) |
+| --- | --- | --- | --- | --- |
+| 1 | `START` | `router` | Fija | `.addEdge(START, "router")` |
+| 2 | `router` | `supervisor` | Fija | `.addEdge("router", "supervisor")` |
+| **3–8** | **`supervisor`** | **`query_graph`, `action_graph`, `report_graph`, `chat`, `clarify`, `END`** | **`Command({ goto })`** | **`.addNode("supervisor", supervise, { ends: [...] })`: el nodo devuelve la actualización y el destino juntos** |
+| 9–13 | cada agente | `supervisor` | Fijas | `.addEdge(agente, "supervisor")`: el control vuelve siempre al supervisor |
+
+**Estado compartido y privado.** Un subgrafo agregado como nodo recibe del principal los campos con el **mismo nombre** en los dos esquemas y devuelve solo esos. Lo demás es privado: vive en los checkpoints del subgrafo, en su propio espacio de nombres (`action_graph:<id de la tarea>`), y cada corrida arranca de cero.
+
+| Campo | Principal | `query_graph` | `action_graph` | `report_graph` |
+| --- | --- | --- | --- | --- |
+| `messages` | ✔ | compartido | compartido | compartido |
+| `plan` | ✔ | compartido (lee su tarea) | compartido | compartido |
+| `report` | ✔ | — | — | compartido (escribe el estado de cada sección) |
+| `intent`, `intentReason`, `activeAgent` | ✔ | — | — | — |
+| `pendingAction`, `approval` | — | — | **privados** | — |
+| `reportParts` | — | — | — | **privado** (con reducer) |
+
+**Cómo se ve un pedido mixto en la traza** («registrá la venta y decime cuánto stock queda», aprobando). `npm run threads -- history <id>` muestra el grafo principal; con `--subgraphs`, también los pasos de cada corrida:
+
+| Grafo | Pasos (del más viejo al más nuevo) |
+| --- | --- |
+| principal | `router` → `supervisor` → `action_graph` ⏸ (pausa adentro) → `supervisor` → `query_graph` → `supervisor` |
+| `action_graph:…` | `action_agent` → `propose_action` → `await_approval` ⏸ … `execute_action` → `action_agent` |
+| `query_graph:…` | `agent` → `tools` → `agent` |
+
+| Situación | Camino en el principal | Notas |
+| --- | --- | --- |
+| Pedido de una sola tarea | `router → supervisor → <agente> → supervisor → END` | Adentro del agente, lo mismo que en las fases 2 a 6 |
+| Acción y consulta | `… → action_graph` ⏸ `→ supervisor → query_graph → supervisor → END` | La consulta corre después de decidir, en el mismo turno |
+| Acción rechazada o con pregunta | igual | Las tareas siguientes se hacen igual |
+| Dos acciones en un mensaje | `… → action_graph → supervisor → END` | Se hace la primera; el supervisor agrega el aviso de la otra |
+| Una parte `unclear` | `… → clarify → supervisor → END` | Se pide aclaración antes de hacer nada |
+
+**Qué NO existe:** un supervisor que llama al modelo entre agente y agente, ni un agente que le pase el control a otro sin volver al supervisor.
+
+---
+
 ## Próximas fases (planeado, aún no existe)
 
 | Fase | Cambio previsto en el grafo |
 | --- | --- |
-| 7 | Los caminos pasan a ser subgrafos coordinados por un supervisor |
+| 8 | Un nodo lee las reglas del negocio de la memoria de largo plazo (Store) y las carga en `businessContext` |

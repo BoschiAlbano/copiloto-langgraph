@@ -92,7 +92,8 @@ export function sharedTask(state: Pick<TaskState, "plan">): Task | undefined {
 /** Lo que se le suma al prompt del sistema de un agente cuando el pedido tiene varias partes (R7). */
 export const taskPrompt = (task: Task) =>
   `\n\n## Tu parte de este pedido\nEl último mensaje de la persona pide varias cosas y cada una la atiende un agente distinto, en este mismo turno. ` +
-  `A vos te toca solo esto: «${task.request}». No hagas ni contestes el resto: lo atienden los otros agentes.`;
+  `A vos te toca solo esto: «${task.request}». No hagas ni contestes el resto: lo atienden los otros agentes. ` +
+  `Respondé tu parte como si fuera todo el pedido: no menciones las otras partes, ni a otros agentes, ni lo que vos no hacés.`;
 
 /** La indicación que separa la respuesta de otro agente del trabajo de este. No se guarda en el hilo. */
 export const handoffMessage = (task: Task) => new HumanMessage(`[Indicación del copiloto] Seguí con tu parte del pedido: «${task.request}».`);

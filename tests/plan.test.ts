@@ -143,3 +143,20 @@ describe("la tarea que ve cada agente (R7)", () => {
     expect(messages).toHaveLength(2);
   });
 });
+
+describe("reglas de convivencia entre agentes (fase 7)", () => {
+  it("la tarea pide contestar solo su parte sin mencionar las otras ni a otros agentes", async () => {
+    const { taskPrompt } = await import("../src/graph/plan.js");
+    const text = taskPrompt({ id: "1", intent: "query", request: "x", status: "running" });
+    expect(text).toMatch(/no menciones las otras partes, ni a otros agentes/);
+  });
+
+  it("los agentes de consultas y de acciones no revisan ni corrigen los reportes del hilo (los arma el sistema)", async () => {
+    const { readFileSync } = await import("node:fs");
+    for (const name of ["system.md", "action.md"]) {
+      const prompt = readFileSync(new URL(`../src/graph/prompts/${name}`, import.meta.url), "utf8");
+      expect(prompt, name).toMatch(/los mensajes que empiezan con «Reporte ·»\) los arma el sistema con datos de la base/);
+      expect(prompt, name).toMatch(/no los revises/i);
+    }
+  });
+});

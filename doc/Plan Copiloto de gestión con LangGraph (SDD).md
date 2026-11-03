@@ -97,7 +97,7 @@ Un router clasifica cada pedido y lo deriva a uno de cuatro caminos; solo las ac
 
 &#91;embedded content: arquitectura del grafo · 4 caminos, 1 aprobación humana\]
 
-El diagrama muestra el grafo en su versión final. Hasta la fase 6 los agentes son nodos simples del mismo grafo; en la fase 7 pasan a ser subgrafos coordinados por un supervisor, lo que permite pedidos mixtos. El checkpointer guarda el estado del grafo en cada paso.
+El diagrama muestra el grafo en su versión final. Hasta la fase 6 los agentes eran nodos simples del mismo grafo; desde la fase 7 son subgrafos (consultas, acciones y reportes) coordinados por un supervisor: el router parte el pedido en tareas y el supervisor se las pasa a cada agente, lo que permite pedidos mixtos. El checkpointer guarda el estado del grafo en cada paso, también el de los subgrafos.
 
 ## Modelo de datos
 
@@ -122,7 +122,7 @@ El negocio de ejemplo necesita siete tablas propias más una de auditoría; las 
 
 ## Estado del grafo y herramientas
 
-El estado crece fase a fase: arranca con solo los mensajes y termina con diez campos (el plan original contaba nueve; `intentReason` en la fase 3 y `report` en la 6 se sumaron al implementar). Todos se validan con Zod.
+El estado crece fase a fase: arranca con solo los mensajes y termina con once campos (el plan original contaba nueve; `intentReason` en la fase 3, `report` en la 6 y `plan` en la 7 se sumaron al implementar). Todos se validan con Zod. Desde la fase 7, los campos que usa un solo agente son **privados** de su subgrafo y no están en el estado principal: `pendingAction` y `approval` (acciones) y `reportParts` (reportes).
 
 | Campo | Contenido | Cómo se actualiza | Fase |
 | --- | --- | --- | --- |
@@ -133,7 +133,8 @@ El estado crece fase a fase: arranca con solo los mensajes y termina con diez ca
 | `approval` | Aprobada, rechazada o editada (o inválida, si hay que volver a preguntar), con comentario | Reemplaza el valor (`null` cuando no hay ninguna) | 5 |
 | `report` | Reporte en curso: id, período (fechas calculadas por código), título y aviso | Reemplaza el valor | 6 |
 | `reportParts` | Secciones de un reporte armadas en paralelo (ventas, turnos y stock) | Se concatenan; un reporte nuevo (otro `reportId`) reemplaza las partes del anterior | 6 |
-| `activeAgent` | Agente que atiende el pedido | Reemplaza el valor | 7 |
+| `plan` | Las tareas del turno (intención, parte del pedido y estado de cada una) y un aviso opcional | Reemplaza el valor (lo escribe el router; el supervisor marca cada tarea) | 7 |
+| `activeAgent` | Agente que atiende la tarea en curso (`null` al terminar el turno) | Reemplaza el valor | 7 |
 | `businessContext` | Reglas y preferencias leídas de la memoria | Reemplaza el valor | 8 |
 | `lastError` | Último error y cantidad de reintentos | Reemplaza e incrementa | 10 |
 
@@ -351,6 +352,7 @@ La API Batch cobra la mitad en Sonnet 5.5 (1 y 5), útil para correr las evaluac
 | Consulta típica (medido en la fase 3, con router) | US$ 0,014 | US$ 0,0009 |
 | Acción con aprobación (medido en la fase 5) | US$ 0,032 | US$ 0,0019 |
 | Reporte en paralelo (medido en la fase 6; con Sonnet escribiendo la «Lectura») | US$ 0,005 | US$ 0,0009 |
+| Pedido mixto: acción y consulta (medido en la fase 7) | US$ 0,041 | US$ 0,0028 |
 | Set de evaluaciones (30 casos) | US$ 0,90 | US$ 0,05 |
 
 **Supuestos.** Una consulta típica son una llamada del router y dos del agente, con unos 7.000 tokens de entrada y 600 de salida en total. Para las 12 fases se calculan entre 50 y 150 corridas de prueba por fase y unas 12 corridas del set de evaluaciones.
@@ -364,7 +366,7 @@ La API Batch cobra la mitad en Sonnet 5.5 (1 y 5), útil para correr las evaluac
 
 **Notas**
 
-- Salvo la consulta típica, medida en las fases 2 y 3 (ver sus specs), son estimaciones propias, no mediciones. Con Sonnet como agente el costo medido es ~30 % menor que el estimado y el router de Haiku agrega solo ~US$ 0,0002 por turno (~1,5 %). Con Haiku como agente el router sí pesa (+30 %), porque el agente ya era muy barato. La acción con aprobación se midió en la fase 5 (una consulta previa, la propuesta y la respuesta tras la decisión: 4 llamadas y ~4.100 tokens de entrada por llamada, porque cada una lleva el prompt de acciones y las 8 definiciones de herramientas): +27 % con Haiku y +8 % con Sonnet respecto de la estimación. El reporte en paralelo se midió en la fase 6 y salió **muy por debajo** de la estimación (−94 % con Sonnet y −78 % con Haiku): en el diseño final las tres secciones no usan modelo (son consultas directas a la base) y solo hay dos llamadas baratas, el planificador del período (Haiku) y la «Lectura» (`MODEL_REPORT`), más el router; las cifras las escribe el código. La estimación original suponía un agente por sección.
+- Salvo la consulta típica, medida en las fases 2 y 3 (ver sus specs), son estimaciones propias, no mediciones. Con Sonnet como agente el costo medido es ~30 % menor que el estimado y el router de Haiku agrega solo ~US$ 0,0002 por turno (~1,5 %). Con Haiku como agente el router sí pesa (+30 %), porque el agente ya era muy barato. La acción con aprobación se midió en la fase 5 (una consulta previa, la propuesta y la respuesta tras la decisión: 4 llamadas y ~4.100 tokens de entrada por llamada, porque cada una lleva el prompt de acciones y las 8 definiciones de herramientas): +27 % con Haiku y +8 % con Sonnet respecto de la estimación. El reporte en paralelo se midió en la fase 6 y salió **muy por debajo** de la estimación (−94 % con Sonnet y −78 % con Haiku): en el diseño final las tres secciones no usan modelo (son consultas directas a la base) y solo hay dos llamadas baratas, el planificador del período (Haiku) y la «Lectura» (`MODEL_REPORT`), más el router; las cifras las escribe el código. La estimación original suponía un agente por sección. El pedido mixto (una acción y una consulta en el mismo mensaje) se midió en la fase 7: cuesta lo de una acción más una consulta corta (5 o 6 llamadas). Partir el pedido no suma llamadas, porque lo hace el mismo router; su prompt, más largo, encarece un ~5 % las consultas simples con Haiku (de US$ 0,0129 a US$ 0,0136 los 11 casos del bench).
 - Los precios salen de páginas que reproducen la documentación oficial; confirmalos en la consola antes de cargar crédito.
 - El gasto de la IA con la que programás (el desarrollo con SDD) es aparte y depende de la herramienta y el plan que uses.
 - Todo lo demás corre en local (Supabase, grafo y app web), así que la API de Claude es el único gasto del proyecto.
