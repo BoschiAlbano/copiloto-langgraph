@@ -40,6 +40,18 @@ export const QueryState = new StateSchema({
 });
 export type QueryStateType = typeof QueryState.State;
 
+/**
+ * Reportes: comparte `report` (período, título y estado de cada sección, que muestra la terminal). Las partes son
+ * PRIVADAS: las escriben las tres secciones a la vez (con el reducer que las junta) y solo las lee `compose_report`.
+ */
+export const ReportState = new StateSchema({
+  messages: MessagesValue,
+  plan: planSchema.optional(),
+  report: reportSchema.optional(),
+  reportParts: new ReducedValue(z.array(partSchema).default([]), { reducer: mergeParts }),
+});
+export type ReportStateType = typeof ReportState.State;
+
 /** Estado completo para llamar a un nodo suelto (fuera de un grafo), por ejemplo en tests y evaluaciones. */
 export const makeState = (messages: BaseMessage[], overrides: Partial<AgentStateType> = {}): AgentStateType => ({
   messages,

@@ -5,6 +5,9 @@ import { z } from "zod";
 export const SECTIONS = ["sales", "appointments", "stock"] as const;
 export type Section = (typeof SECTIONS)[number];
 
+/** Cómo salió cada sección: `missing` si no llegó su parte. */
+const sectionStatusSchema = z.enum(["ok", "error", "missing"]);
+
 /** El reporte en curso: lo decide `plan_report` y lo leen las secciones y `compose_report`. Se reemplaza en cada pedido. */
 export const reportSchema = z.object({
   /** Único por reporte: separa las partes de un reporte de las de otro en el mismo hilo. */
@@ -15,6 +18,11 @@ export const reportSchema = z.object({
   label: z.string(),
   /** Aviso para la persona, por ejemplo que no se pudo interpretar el período. */
   notice: z.string().optional(),
+  /**
+   * Cómo salió cada sección; lo escribe `compose_report` (fase 7). Las partes son privadas del subgrafo de reportes:
+   * el grafo principal (y la terminal) solo ven este resumen.
+   */
+  sections: z.object({ sales: sectionStatusSchema, appointments: sectionStatusSchema, stock: sectionStatusSchema }).optional(),
 });
 export type Report = z.infer<typeof reportSchema>;
 
