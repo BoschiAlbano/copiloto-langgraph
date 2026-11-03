@@ -9,6 +9,7 @@ import { conversationMessages, getStatus } from "../graph/threads.js";
 import { costOfUsage, mergeUsage, type ModelUsage } from "../graph/usage-tracker.js";
 import {
   describeActionResult,
+  describeAgents,
   describeCard,
   describeReportStatus,
   describeRoute,
@@ -111,6 +112,7 @@ function show(turn: TurnResult, withRoute: boolean) {
   if (turn.reply) console.log(`\nCopiloto: ${turn.reply}\n`);
   console.log(dim(`  [uso] ${describeUsageTotal(summary.usage)} (sesión: ${usd(costOfUsage(session))})`));
   for (const detail of describeUsagePerModel(summary.usage)) console.log(dim(`        ${detail}`));
+  for (const line of describeAgents(turn)) console.log(dim(`  ${line}`));
   console.log("");
 }
 

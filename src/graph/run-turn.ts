@@ -8,8 +8,8 @@ import type { Plan } from "./plan.js";
 import type { Section } from "./report/state.js";
 import { parseThreadId } from "./thread-id.js";
 import { getStatus } from "./threads.js";
-import { summarizeTurn, type TurnSummary } from "./usage.js";
-import { UsageTracker } from "./usage-tracker.js";
+import { agentSteps, summarizeTurn, type AgentStep, type TurnSummary } from "./usage.js";
+import { UsageTracker, type ModelUsage } from "./usage-tracker.js";
 
 export interface TurnResult {
   /** Respuesta final. Vacía si el turno quedó esperando una aprobación (ahí manda `awaiting`). */
@@ -17,6 +17,10 @@ export interface TurnResult {
   /** Ruta que eligió el router y por qué; `tasks`, las partes del pedido en el orden en que se hacen (fase 7). */
   route: { intent?: Intent; reason?: string; tasks?: { intent: Intent; request: string }[] };
   summary: TurnSummary;
+  /** Los agentes que intervinieron en esta invocación, en orden, con sus herramientas y su uso (fase 7). */
+  agents: AgentStep[];
+  /** Lo que gastó la coordinación (el router), aparte de los agentes. */
+  coordination: ModelUsage[];
   /** El grafo se pausó: hay una acción propuesta esperando la decisión (`resumeTurn`). */
   awaiting?: ApprovalRequest;
   /** Si el turno fue un reporte: el período y cómo salió cada sección. */
@@ -69,6 +73,7 @@ async function invokeTurn(agent: TurnAgent, threadId: string, input: TurnInput, 
       ...(plan && { tasks: plan.tasks.map((t) => ({ intent: t.intent, request: t.request })) }),
     },
     summary: summarizeTurn(messages.slice(already), tracker.usage()),
+    ...agentSteps({ plan, messages, already, runs: tracker.runs(), awaiting: Boolean(awaiting) }),
     ...(awaiting && { awaiting }),
     // `state.report` queda en el hilo después de un reporte: solo cuenta si ESTE turno tuvo un reporte terminado.
     ...(!awaiting && plan?.tasks.some((t) => t.intent === "report") && report?.sections

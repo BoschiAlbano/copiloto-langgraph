@@ -10,8 +10,36 @@ export interface ModelUsage {
   outputTokens: number;
 }
 
+/** El uso de una corrida de un nodo del grafo principal (un agente o el router), en el orden en que empezó. */
+export interface RunUsage {
+  /** El nodo del grafo principal: `router`, `query_graph`, `action_graph`, `report_graph`, `chat` o `clarify`. */
+  node: string;
+  usage: ModelUsage[];
+}
+
+const UNKNOWN_RUN = "desconocido";
+
 /**
- * Callback de LangChain que suma los tokens de CADA llamada al modelo, agrupados por modelo.
+ * A qué corrida del grafo principal pertenece una llamada al modelo (fase 7). LangGraph le pasa a cada llamada, en
+ * sus metadatos, el espacio de nombres del nodo que la hizo: `router:<id>` para un nodo del principal, o
+ * `query_graph:<id>|agent:<id>` para uno de adentro de un subgrafo. El primer tramo identifica la corrida.
+ */
+export function runKeyOf(metadata?: Record<string, unknown>): string {
+  const ns = metadata?.langgraph_checkpoint_ns;
+  return typeof ns === "string" && ns ? ns.split("|")[0]! : UNKNOWN_RUN;
+}
+
+const add = (map: Map<string, ModelUsage>, model: string, input: number, output: number) => {
+  const entry = map.get(model) ?? { model, calls: 0, inputTokens: 0, outputTokens: 0 };
+  entry.calls += 1;
+  entry.inputTokens += input;
+  entry.outputTokens += output;
+  map.set(model, entry);
+};
+
+/**
+ * Callback de LangChain que suma los tokens de CADA llamada al modelo, agrupados por modelo y, desde la fase 7, por
+ * corrida (qué agente hizo la llamada).
  *
  * Hace falta porque la salida estructurada del router no deja su uso en `messages`: el único
  * lugar donde se ve el consumo de todos los nodos (router, aclaración, charla, agente) es el
@@ -24,22 +52,41 @@ export class UsageTracker extends BaseCallbackHandler {
   awaitHandlers = true;
 
   private readonly byModel = new Map<string, ModelUsage>();
+  /** Por corrida, en el orden en que empezaron (un Map conserva el orden de inserción). */
+  private readonly byRun = new Map<string, Map<string, ModelUsage>>();
+  /** Qué corrida hizo cada llamada en curso: los metadatos llegan al empezar, los tokens al terminar. */
+  private readonly runOfCall = new Map<string, string>();
 
-  handleLLMEnd(output: LLMResult) {
+  handleChatModelStart(_llm: unknown, _messages: unknown, runId: string, _parentRunId?: string, _extra?: unknown, _tags?: string[], metadata?: Record<string, unknown>) {
+    const key = runKeyOf(metadata);
+    this.runOfCall.set(runId, key);
+    if (!this.byRun.has(key)) this.byRun.set(key, new Map());
+  }
+
+  handleLLMEnd(output: LLMResult, runId?: string) {
     const message = (output.generations?.[0]?.[0] as { message?: BaseMessage } | undefined)?.message;
     const ai = message && AIMessage.isInstance(message) ? message : undefined;
     const model = String(ai?.response_metadata?.model ?? ai?.response_metadata?.model_name ?? output.llmOutput?.model ?? "desconocido");
+    const input = ai?.usage_metadata?.input_tokens ?? 0;
+    const outputTokens = ai?.usage_metadata?.output_tokens ?? 0;
 
-    const entry = this.byModel.get(model) ?? { model, calls: 0, inputTokens: 0, outputTokens: 0 };
-    entry.calls += 1;
-    entry.inputTokens += ai?.usage_metadata?.input_tokens ?? 0;
-    entry.outputTokens += ai?.usage_metadata?.output_tokens ?? 0;
-    this.byModel.set(model, entry);
+    add(this.byModel, model, input, outputTokens);
+    const key = (runId && this.runOfCall.get(runId)) || UNKNOWN_RUN;
+    if (runId) this.runOfCall.delete(runId);
+    if (!this.byRun.has(key)) this.byRun.set(key, new Map());
+    add(this.byRun.get(key)!, model, input, outputTokens);
   }
 
   /** Uso acumulado, un renglón por modelo. */
   usage(): ModelUsage[] {
     return [...this.byModel.values()].map((u) => ({ ...u }));
+  }
+
+  /** Uso por corrida, en el orden en que empezaron; solo las que llamaron al modelo. */
+  runs(): RunUsage[] {
+    return [...this.byRun.entries()]
+      .filter(([, models]) => models.size > 0)
+      .map(([key, models]) => ({ node: key.split(":")[0]!, usage: [...models.values()].map((u) => ({ ...u })) }));
   }
 }
 

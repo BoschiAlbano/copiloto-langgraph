@@ -2,6 +2,7 @@ import { estimateCostUsd } from "../config/pricing.js";
 import type { ApprovalRequest } from "../graph/approval.js";
 import type { TurnResult } from "../graph/run-turn.js";
 import type { CheckpointInfo, ThreadSummary } from "../graph/threads.js";
+import type { AgentNode } from "../graph/plan.js";
 import type { ActionResult } from "../graph/usage.js";
 import { costOfUsage, totalUsage, type ModelUsage } from "../graph/usage-tracker.js";
 
@@ -154,4 +155,36 @@ export function parseEditInput(input: string, current: Record<string, unknown>):
 export function describeUsageTotal(usage: ModelUsage[]): string {
   const t = totalUsage(usage);
   return `${t.calls} llamada(s) al modelo · entrada ${number(t.inputTokens)} · salida ${number(t.outputTokens)} tokens · ${usd(costOfUsage(usage))}`;
+}
+
+/** Cómo se llama cada agente en la terminal. */
+export const AGENT_LABELS: Record<AgentNode, string> = {
+  query_graph: "consultas",
+  action_graph: "acciones",
+  report_graph: "reportes",
+  chat: "charla",
+  clarify: "aclaración",
+};
+
+const usageBrief = (usage: ModelUsage[]) => {
+  const t = totalUsage(usage);
+  return `${t.calls} llamada(s) · ${number(t.inputTokens)} / ${number(t.outputTokens)} tokens · ${usd(costOfUsage(usage))}`;
+};
+
+/**
+ * Los agentes que intervinieron en el turno (fase 7): una línea con el orden y una por agente, con sus herramientas,
+ * llamadas, tokens (entrada / salida) y costo. El router va aparte, como coordinación. Vacío si no hubo llamadas al
+ * modelo (por ejemplo, con modelos falsos en los tests).
+ */
+export function describeAgents(turn: Pick<TurnResult, "agents" | "coordination">): string[] {
+  if (turn.agents.length === 0 && turn.coordination.length === 0) return [];
+  const order = turn.agents.map((a) => AGENT_LABELS[a.agent]).join(" → ") || "ninguno";
+  const lines = [`[agentes] ${order}`];
+  if (turn.coordination.length) lines.push(`          coordinación (router): ${usageBrief(turn.coordination)}`);
+  turn.agents.forEach((a, i) => {
+    const tools = a.tools.length ? `${a.tools.join(", ")} · ` : "";
+    const waiting = a.waiting ? " · ⏸ espera tu decisión" : "";
+    lines.push(`          ${turn.agents.length > 1 ? `${i + 1}. ` : ""}${AGENT_LABELS[a.agent]}: ${tools}${usageBrief(a.usage)}${waiting}`);
+  });
+  return lines;
 }

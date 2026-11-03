@@ -68,6 +68,7 @@ export function buildTestGraph({
   reportPlan = unexpectedPlan,
   reportSections = unexpectedSections,
   intent = "query",
+  router,
   now,
   checkpointer,
 }: {
@@ -78,12 +79,14 @@ export function buildTestGraph({
   reportPlan?: RouterModel;
   reportSections?: SectionRunner;
   intent?: Parameters<typeof fixedRouter>[0];
+  /** Un router propio, en lugar del fijo que arma `intent`. */
+  router?: RouterModel;
   now?: () => Date;
   checkpointer?: BaseCheckpointSaver;
 }) {
   return buildGraph({
     models: {
-      router: fixedRouter(intent).model,
+      router: router ?? fixedRouter(intent).model,
       agent: model,
       action: actionModel ?? model,
       chat: model,

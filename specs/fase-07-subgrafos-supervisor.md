@@ -41,6 +41,7 @@ Qué se necesita de tu parte: nada más que aprobar esta spec. Las pruebas con e
 **Respuesta, terminal y trazas**
 - R9: La respuesta de un turno mixto junta, en orden, lo que contestó cada agente. Cada agente deja su propio mensaje de IA en el hilo.
 - R10: La terminal muestra el plan y por dónde pasó: `[ruta] action → query: registrar venta y consultar stock`, además de la línea `[reporte]` y el uso y costo por modelo, como hasta ahora.
+- R10b (agregado después del cierre, a pedido): la terminal muestra también **qué agentes intervinieron** en el turno, en orden, con una línea por agente: las herramientas que usó, sus llamadas al modelo, sus tokens y su costo. El router va aparte, como coordinación. Si el turno quedó esperando una aprobación, la línea del agente de acciones lo dice. Las llamadas se atribuyen a cada agente con los metadatos de LangGraph (`langgraph_checkpoint_ns`), no adivinando.
 - R11: `npm run threads -- history <id>` muestra los pasos del grafo principal (`router`, `supervisor`, `action_graph`, …). Con `--subgraphs`, muestra también los pasos internos de cada subgrafo con su espacio de nombres.
 
 ## Escenarios con el modelo real (congelados)
@@ -68,6 +69,7 @@ Se guardan en `evals/plan-cases.ts` **antes** de cambiar el prompt del router. S
 - [x] CA8 (hilos): un pedido mixto pausado sobrevive a un reinicio; al aprobar, se ejecuta la acción y después la consulta que faltaba. Un turno siguiente en el mismo hilo arranca con un plan nuevo (no arrastra tareas del anterior).
 - [x] CA9 (trazas): `threads -- history` muestra el paso por el supervisor y los subgrafos, y con `--subgraphs` los pasos internos.
 - [x] CA10 (costo): se mide un pedido mixto (M1, aprobando) con Haiku y con Sonnet como agentes, y se confirma que un pedido simple no cuesta más que en la fase 6 (la única llamada al modelo que cambia es la del router, ahora con el plan). Se agrega la fila al presupuesto del plan. **Con una diferencia:** el pedido simple sí cuesta un poco más, +5 % con Haiku (ver «Medición de costo»).
+- [x] CA12 (R10b): el desglose por agente suma lo mismo que el uso total del turno; un pedido mixto muestra los dos agentes en orden, cada uno con sus herramientas; al reanudar una aprobación se muestra solo lo que pasó después de la pausa. Lo prueban tests con modelos falsos y una corrida con el modelo real.
 - [x] CA11: `npm test`, `npm run typecheck` y `npm run db:reset` (dos veces seguidas) pasan; el diagrama de la fase se agrega a `specs/mapa-del-grafo.md`; se actualizan README y plan.
 
 ## Fuera de alcance
@@ -254,6 +256,14 @@ Una tarea = un commit en la rama `dev/fase-07`.
 - **CA2 completo usa el producto de prueba (`TST-001`) y no el gel del seed:** la venta se aprueba de verdad y la limpieza de los tests de escritura la borra; con el gel, el test dejaría el stock del seed cambiado.
 - **Pool chico para los tests.** Con los subgrafos, `getStatus` hace más consultas, y la suite en paralelo superó los 20 clientes del pooler del Supabase local (`EMAXCONNSESSION`). Los checkpointers de los tests usan 2 conexiones; la aplicación sigue con 5.
 - **Una prueba a mano, al cierre, encontró dos fallas que los tests no veían, y se corrigieron.** Pedido: «decime cuánto stock queda de gel y armame el resumen del mes» y, en el turno siguiente, «¿y de cera mate cuánto queda?». (1) El agente de consultas le contó a la persona que «el resumen lo atiende otro agente»: la tarea le decía que no lo contestara, pero no que no lo mencionara. (2) En el turno siguiente, el mismo agente leyó el reporte del hilo como si fuera una respuesta suya sin herramientas y lo «corrigió» con datos falsos: dijo que los 317 turnos eran inventados, y eran los del mes completo, con los agendados a futuro. Lo segundo ya asomaba en la fase 6 (en 1 de 2 corridas, el agente «revisó» un reporte sin que se lo pidieran), y la frase de (1) lo agravó. Arreglos: la tarea pide «respondé tu parte como si fuera todo el pedido: no menciones las otras partes ni a otros agentes», y los prompts de los agentes de consultas y de acciones dicen que los mensajes «Reporte · …» los arma el sistema con datos de la base y no se revisan ni se corrigen. Después: 5 de 5 corridas limpias (3 con el pedido mixto, 2 con un reporte solo) y la suite completa con el modelo real en verde. Dos tests fijan las dos reglas.
+- **Desglose por agente (R10b, después del cierre).** Cada llamada al modelo trae en sus metadatos el espacio de nombres del nodo que la hizo (`router:<id>`, `query_graph:<id>|agent:<id>`): su primer tramo identifica la corrida, y así el `UsageTracker` reparte llamadas, tokens y costo por agente sin adivinar. Las herramientas de cada agente salen de los mensajes de su tarea (desde su `startedAt`). Con el modelo real, el desglose suma exactamente el total del turno. Ejemplo de la terminal:
+
+  ```
+  [agentes] consultas → reportes
+            coordinación (router): 1 llamada(s) · 2.544 / 142 tokens · US$ 0,0003
+            1. consultas: getStockLevels · 2 llamada(s) · 5.631 / 97 tokens · US$ 0,0006
+            2. reportes: 2 llamada(s) · 2.409 / 872 tokens · US$ 0,0007
+  ```
 - **Hilos de fases anteriores.** Un hilo guardado antes de la fase 7 que quedó pausado espera en `await_approval`, un nodo que ya no existe en el grafo principal: no se puede retomar. `db:reset` los borra (CA11 lo corre).
 
 ## Medición de costo (CA10)
