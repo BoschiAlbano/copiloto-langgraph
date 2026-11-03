@@ -4,6 +4,7 @@ import {
   describeCard,
   describeCheckpoint,
   describeReportStatus,
+  describeRoute,
   describeThread,
   formatWhen,
   looksLikeEdit,
@@ -223,5 +224,31 @@ describe("describeCheckpoint", () => {
     expect(describeCheckpoint({ checkpointId: "x", source: "loop", step: 4, ranNodes: ["agent"], next: [], messageCount: 2 })).toContain(
       "sigue fin",
     );
+  });
+});
+
+describe("describeRoute (fase 7)", () => {
+  it("con una sola tarea es la línea de siempre", () => {
+    expect(describeRoute({ intent: "query", reason: "pide un dato", tasks: [{ intent: "query", request: "x" }] })).toEqual(["[ruta] query: pide un dato"]);
+  });
+
+  it("con varias muestra el orden y la parte de cada una", () => {
+    const route = {
+      intent: "action" as const,
+      reason: "registrar venta y consultar stock",
+      tasks: [
+        { intent: "action" as const, request: "Registrá la venta de un gel" },
+        { intent: "query" as const, request: "Decime cuánto stock queda" },
+      ],
+    };
+    expect(describeRoute(route)).toEqual([
+      "[ruta] action → query: registrar venta y consultar stock",
+      "       1. action: Registrá la venta de un gel",
+      "       2. query: Decime cuánto stock queda",
+    ]);
+  });
+
+  it("sin intención no muestra nada", () => {
+    expect(describeRoute({})).toEqual([]);
   });
 });

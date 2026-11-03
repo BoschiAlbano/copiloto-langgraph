@@ -36,6 +36,19 @@ export function describeThread(t: ThreadSummary): string {
   return `${t.threadId.padEnd(14)} ${formatWhen(t.lastActivity)}  ${String(t.messageCount).padStart(3)} msj  "${t.firstMessage}"${flag}`;
 }
 
+/**
+ * La ruta del turno (fase 7). Con una sola tarea, como antes: `[ruta] query: motivo`. Con varias, el orden en que se
+ * hacen y la parte del pedido de cada una: `[ruta] action → query: motivo` y debajo una línea por tarea.
+ */
+export function describeRoute(route: TurnResult["route"]): string[] {
+  if (!route.intent) return [];
+  const tasks = route.tasks ?? [];
+  const head = tasks.length > 1 ? tasks.map((t) => t.intent).join(" → ") : route.intent;
+  const lines = [`[ruta] ${head}: ${route.reason ?? "sin motivo"}`];
+  if (tasks.length > 1) tasks.forEach((t, i) => lines.push(`       ${i + 1}. ${t.intent}: ${t.request}`));
+  return lines;
+}
+
 /** Una línea por checkpoint para `npm run threads -- history <id>`. */
 export function describeCheckpoint(c: CheckpointInfo): string {
   const ran = c.ranNodes.length ? c.ranNodes.join("+") : "—";

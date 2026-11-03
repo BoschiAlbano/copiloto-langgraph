@@ -11,6 +11,7 @@ import {
   describeActionResult,
   describeCard,
   describeReportStatus,
+  describeRoute,
   describeUsagePerModel,
   describeUsageTotal,
   looksLikeEdit,
@@ -102,7 +103,7 @@ try {
 function show(turn: TurnResult, withRoute: boolean) {
   const { summary, route } = turn;
   session = mergeUsage(session, summary.usage);
-  if (withRoute && route.intent) console.log(dim(`\n  [ruta] ${route.intent}: ${route.reason ?? "sin motivo"}`));
+  if (withRoute) describeRoute(route).forEach((line, i) => console.log(dim(`${i === 0 ? "\n" : ""}  ${line}`)));
   for (const call of summary.toolCalls) console.log(dim(`  [herramienta] ${call.name} ${JSON.stringify(call.args)}`));
   if (turn.report) console.log(dim(`  ${describeReportStatus(turn.report)}`));
   // Lo que pasó con la acción lo cuenta el código; el modelo lo comenta después.
