@@ -2,12 +2,12 @@ import { AIMessage, HumanMessage, type BaseMessage } from "@langchain/core/messa
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { describe, expect, it, vi } from "vitest";
-import { buildGraph, routeByIntent } from "../src/graph/index.js";
+import { buildGraph } from "../src/graph/index.js";
 import { INTENTS, type Intent } from "../src/graph/intents.js";
 import { AGENT_RECURSION_LIMIT } from "../src/graph/limits.js";
 import type { AgentModel } from "../src/graph/nodes/agent.js";
 import type { RouterModel } from "../src/graph/nodes/router.js";
-import { makeState } from "../src/graph/state.js";
+import { AGENT_NODES } from "../src/graph/plan.js";
 import { routed, unexpectedActions } from "./helpers/graph.js";
 
 /** Modelo de texto falso: contesta con un texto fijo y cuenta las llamadas. */
@@ -78,46 +78,66 @@ function setup(routerOutputs: unknown[], agentReplies?: AIMessage[] | ((callNumb
   return { graph, router, agent, action, chat, clarify, reportPlan, report, sections, warn };
 }
 
-/** Corre un turno y devuelve los nodos recorridos, en orden, y el estado final. */
+/**
+ * Corre un turno y devuelve los nodos recorridos, en orden, y el estado final. Con `subgraphs: true` el stream trae
+ * también los pasos de adentro de cada subgrafo, con su espacio de nombres: se anotan como `subgrafo/nodo` (en
+ * `path`, intercalados con los del grafo principal, y aparte en `inner`).
+ */
 async function runPath(graph: ReturnType<typeof setup>["graph"], messages: BaseMessage[], recursionLimit = AGENT_RECURSION_LIMIT) {
   const path: string[] = [];
+  const inner: string[] = [];
   let state: Awaited<ReturnType<typeof graph.invoke>> | undefined;
-  for await (const [mode, chunk] of await graph.stream({ messages }, { streamMode: ["updates", "values"], recursionLimit })) {
-    if (mode === "updates") path.push(...Object.keys(chunk as object));
-    else state = chunk as typeof state;
+  const stream = await graph.stream({ messages }, { streamMode: ["updates", "values"], recursionLimit, subgraphs: true });
+  for await (const [namespace, mode, chunk] of stream as AsyncIterable<[string[], string, unknown]>) {
+    const prefix = namespace.length ? `${namespace[0]!.split(":")[0]}/` : "";
+    if (mode === "updates") {
+      for (const node of Object.keys(chunk as object)) {
+        path.push(prefix + node);
+        if (prefix) inner.push(prefix + node);
+      }
+    } else if (!prefix) state = chunk as typeof state;
   }
-  return { path, state: state! };
+  return { path, inner, state: state! };
 }
+
+/** El camino del grafo principal, sin los pasos de adentro de los subgrafos. */
+const outer = (path: string[]) => path.filter((n) => !n.includes("/"));
 
 const ask = (text = "hola") => [new HumanMessage(text)];
 
-describe("cada intención llega a su rama (CA5)", () => {
-  const expectedPath: Record<Intent, string[]> = {
-    query: ["router", "agent"],
-    chat: ["router", "chat"],
-    action: ["router", "action_agent"],
-    report: ["router", "plan_report", "report_appointments", "report_sales", "report_stock", "compose_report"],
-    unclear: ["router", "clarify"],
+describe("cada intención llega a su agente (CA5), pasando por el supervisor (fase 7)", () => {
+  // Desde la fase 7 el grafo principal es router → supervisor → agente → supervisor; adentro de cada subgrafo
+  // corren los mismos nodos que antes (se comprueban en `inner`).
+  const expectedInner: Record<Intent, string[]> = {
+    query: ["query_graph/agent"],
+    chat: [],
+    action: ["action_graph/action_agent"],
+    report: ["report_graph/plan_report", "report_graph/report_appointments", "report_graph/report_sales", "report_graph/report_stock", "report_graph/compose_report"],
+    unclear: [],
   };
 
   for (const intent of INTENTS) {
-    it(`${intent} → ${expectedPath[intent].join(" → ")}`, async () => {
+    const agent = AGENT_NODES[intent];
+    it(`${intent} → router → supervisor → ${agent} → supervisor`, async () => {
       const t = setup([route(intent)]);
-      const { path, state } = await runPath(t.graph, ask());
+      const { path, inner, state } = await runPath(t.graph, ask());
+      expect(outer(path)).toEqual(["router", "supervisor", agent, "supervisor"]);
       // Las tres secciones del reporte corren en el mismo paso: su orden entre sí no está definido, por eso se ordenan.
-      const sectionNodes = path.filter((n) => n.startsWith("report_")).sort();
-      const comparable = intent === "report" ? [...path.filter((n) => !n.startsWith("report_")).slice(0, 2), ...sectionNodes, "compose_report"] : path;
-      expect(comparable).toEqual(expectedPath[intent]);
+      const sections = inner.filter((n) => n.includes("/report_")).sort();
+      const comparable = intent === "report" ? [inner[0]!, ...sections, inner.at(-1)!] : inner;
+      expect(comparable).toEqual(expectedInner[intent]);
       expect(state.intent).toBe(intent);
       expect(state.intentReason).toBe(`motivo ${intent}`);
+      expect(state.activeAgent).toBeNull(); // terminó el turno: ningún agente activo
+      expect(state.plan?.tasks.map((x) => x.status)).toEqual(["done"]);
       expect(state.messages.at(-1)).toBeInstanceOf(AIMessage);
     });
   }
 
-  it("la consulta con herramientas recorre router → agent → tools → agent", async () => {
+  it("la consulta con herramientas recorre agent → tools → agent dentro del subgrafo de consultas", async () => {
     const t = setup([route("query")], [toolCall("1"), new AIMessage("Hay 2 productos bajos.")]);
     const { path, state } = await runPath(t.graph, ask("¿stock bajo?"));
-    expect(path).toEqual(["router", "agent", "tools", "agent"]);
+    expect(path).toEqual(["router", "supervisor", "query_graph/agent", "query_graph/tools", "query_graph/agent", "query_graph", "supervisor"]);
     expect(state.messages.at(-1)?.text).toBe("Hay 2 productos bajos.");
   });
 });
@@ -127,7 +147,7 @@ describe("solo se usa el modelo de la rama elegida", () => {
     toolRuns = 0;
     const t = setup([route("chat")]);
     const { path } = await runPath(t.graph, ask("Hola, buen día."));
-    expect(path).not.toContain("tools");
+    expect(path.some((n) => n.endsWith("tools"))).toBe(false);
     expect(toolRuns).toBe(0);
     expect([t.router.calls, t.chat.calls, t.agent.calls, t.clarify.calls]).toEqual([1, 1, 0, 0]);
   });
@@ -141,10 +161,9 @@ describe("solo se usa el modelo de la rama elegida", () => {
 
   it("reporte: usa el planificador y la «Lectura», y ninguno de los modelos de las otras ramas", async () => {
     const t = setup([route("report")]);
-    const { state, path } = await runPath(t.graph, ask("armame el resumen"));
-    expect(path[0]).toBe("router");
-    expect(path[1]).toBe("plan_report");
-    expect(path.at(-1)).toBe("compose_report");
+    const { state, inner } = await runPath(t.graph, ask("armame el resumen"));
+    expect(inner[0]).toBe("report_graph/plan_report");
+    expect(inner.at(-1)).toBe("report_graph/compose_report");
     expect(state.messages.at(-1)?.text).toContain("Reporte ·");
     expect([t.router.calls, t.reportPlan.calls, t.report.calls]).toEqual([1, 1, 1]);
     expect([t.agent.calls, t.action.calls, t.chat.calls, t.clarify.calls]).toEqual([0, 0, 0, 0]);
@@ -152,8 +171,8 @@ describe("solo se usa el modelo de la rama elegida", () => {
 
   it("acción: usa solo el agente de acciones (y no el de consultas), y una respuesta sin llamadas termina el turno", async () => {
     const t = setup([route("action")]);
-    const { state, path } = await runPath(t.graph, ask("pedido de cambio"));
-    expect(path).toEqual(["router", "action_agent"]);
+    const { state, inner } = await runPath(t.graph, ask("pedido de cambio"));
+    expect(inner).toEqual(["action_graph/action_agent"]);
     expect(state.messages.at(-1)?.text).toBe("respuesta del agente de acciones");
     expect([t.router.calls, t.action.calls, t.agent.calls, t.chat.calls, t.clarify.calls]).toEqual([1, 1, 0, 0, 0]);
   });
@@ -166,7 +185,7 @@ describe("el router decide de nuevo en cada turno", () => {
     expect(turn1.state.intent).toBe("query");
     const turn2 = await runPath(t.graph, [...turn1.state.messages, new HumanMessage("gracias")]);
     expect(turn2.state.intent).toBe("chat");
-    expect(turn2.path).toEqual(["router", "chat"]);
+    expect(outer(turn2.path)).toEqual(["router", "supervisor", "chat", "supervisor"]);
   });
 });
 
@@ -174,7 +193,7 @@ describe("fallas del router (CA7)", () => {
   it("una salida inválida sigue por query y avisa", async () => {
     const t = setup([{ parsed: null }]);
     const { path, state } = await runPath(t.graph, ask());
-    expect(path).toEqual(["router", "agent"]);
+    expect(outer(path)).toEqual(["router", "supervisor", "query_graph", "supervisor"]);
     expect(state.intent).toBe("query");
     expect(t.warn).toHaveBeenCalledOnce();
   });
@@ -185,11 +204,9 @@ describe("fallas del router (CA7)", () => {
   });
 });
 
-describe("routeByIntent", () => {
-  it("cubre las cinco intenciones y usa la rama de solo lectura si falta", () => {
-    const at = (intent: Intent | undefined) => routeByIntent(makeState([], { intent }));
-    expect(INTENTS.map(at)).toEqual(["agent", "action_agent", "plan_report", "chat", "clarify"]);
-    expect(at(undefined)).toBe("agent");
+describe("AGENT_NODES (antes routeByIntent)", () => {
+  it("cubre las cinco intenciones", () => {
+    expect(INTENTS.map((i) => AGENT_NODES[i])).toEqual(["query_graph", "action_graph", "report_graph", "chat", "clarify"]);
   });
 });
 
@@ -202,7 +219,7 @@ describe("tope de pasos (CA10)", () => {
     const replies = [toolCall("1"), toolCall("2"), toolCall("3"), toolCall("4"), new AIMessage("Listo.")];
     const t = setup([route("query")], replies);
     const { path, state } = await runPath(t.graph, ask());
-    expect(path.filter((n) => n === "tools")).toHaveLength(4);
+    expect(path.filter((n) => n === "query_graph/tools")).toHaveLength(4);
     expect(state.messages.at(-1)?.text).toBe("Listo.");
   });
 

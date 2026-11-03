@@ -5,7 +5,7 @@ import type { SectionRunner } from "../src/graph/nodes/report.js";
 import type { ReportPart, Section } from "../src/graph/report/state.js";
 import { buildTestGraph } from "./helpers/graph.js";
 import { echoModel, scriptedModel } from "./helpers/models.js";
-import { getHistory } from "../src/graph/threads.js";
+import { getHistory, getSubgraphHistory } from "../src/graph/threads.js";
 import { runTurn } from "../src/graph/run-turn.js";
 
 // Reporte completo (planificador → tres secciones en paralelo → consolidación) con modelos y secciones falsas.
@@ -87,17 +87,22 @@ describe("CA1: las tres secciones corren a la vez", () => {
     const t = setup({ checkpointer: saver });
     await runTurn({ graph: t.graph }, "hilo-reporte", "Armame el resumen de la semana.");
 
+    // Fase 7: en la historia del grafo principal, el subgrafo de reportes es UN paso…
     const history = (await getHistory(t.graph as never, "hilo-reporte")).reverse(); // del más viejo al más nuevo
-    const ran = history.map((c) => c.ranNodes.slice().sort().join("+"));
+    expect(history.map((c) => c.ranNodes.join("+"))).toEqual(["", "__start__", "router", "supervisor", "report_graph", "supervisor"]);
+    expect(history.at(-1)!.next).toEqual([]);
+
+    // …y sus pasos internos quedan en sus propios checkpoints, donde se ve el paralelismo.
+    const [run] = await getSubgraphHistory(t.graph as never, saver, "hilo-reporte");
+    expect(run!.node).toBe("report_graph");
+    const ran = [...run!.checkpoints].reverse().map((c) => c.ranNodes.slice().sort().join("+"));
     expect(ran).toEqual([
-      "", // entrada de la persona
+      "", // entrada del subgrafo
       "__start__",
-      "router",
       "plan_report",
       "report_appointments+report_sales+report_stock", // ← las tres en el mismo paso
       "compose_report",
     ]);
-    expect(history.at(-1)!.next).toEqual([]);
   });
 
   it("runTurn informa el período y el estado de cada sección; un turno que no es un reporte no lo informa", async () => {
@@ -117,8 +122,10 @@ describe("CA1: las tres secciones corren a la vez", () => {
   it("compose_report corre exactamente una vez, después de las tres", async () => {
     const t = setup({ delayMs: 20 });
     const order: string[] = [];
-    for await (const [mode, chunk] of await t.graph.stream(ask(), { streamMode: ["updates"] })) {
-      if (mode === "updates") order.push(...Object.keys(chunk as object));
+    // Con `subgraphs: true` el stream trae también los pasos de adentro del subgrafo de reportes.
+    const stream = await t.graph.stream(ask(), { streamMode: ["updates"], subgraphs: true });
+    for await (const [namespace, mode, chunk] of stream as AsyncIterable<[string[], string, object]>) {
+      if (mode === "updates" && namespace.length) order.push(...Object.keys(chunk));
     }
     expect(order.filter((n) => n === "compose_report")).toHaveLength(1);
     expect(order.at(-1)).toBe("compose_report");
@@ -208,13 +215,22 @@ describe("CA9: el reporte en un hilo", () => {
     await runTurn({ graph: t.graph }, "hilo-reporte", "Armame el resumen de la semana.");
     const first = await t.graph.getState(THREAD);
     const firstId = first.values.report!.id;
-    expect(first.values.reportParts).toHaveLength(3);
+    // Fase 7 (CA4): las partes son privadas del subgrafo de reportes; el grafo principal no las tiene.
+    expect(first.values).not.toHaveProperty("reportParts");
 
     await runTurn({ graph: t.graph }, "hilo-reporte", "Y ahora el del mes.");
     const second = await t.graph.getState(THREAD);
     expect(second.values.report!.id).not.toBe(firstId);
-    expect(second.values.reportParts).toHaveLength(3); // no seis
-    expect(new Set(second.values.reportParts.map((p: ReportPart) => p.reportId))).toEqual(new Set([second.values.report!.id]));
     expect(second.values.messages.filter((m: { type: string }) => m.type === "ai")).toHaveLength(2);
+
+    // Cada pedido es una corrida nueva del subgrafo, con su propio estado: el segundo tiene sus 3 partes, no 6.
+    const runs = await getSubgraphHistory(t.graph as never, saver, "hilo-reporte");
+    expect(runs.map((r) => r.node)).toEqual(["report_graph", "report_graph"]);
+    const parts = async (namespace: string) =>
+      (await t.graph.getState({ configurable: { thread_id: "hilo-reporte", checkpoint_ns: namespace } })).values.reportParts as ReportPart[];
+    const [a, b] = [await parts(runs[0]!.namespace), await parts(runs[1]!.namespace)];
+    expect(a.map((p) => p.reportId)).toEqual([firstId, firstId, firstId]);
+    expect(b).toHaveLength(3);
+    expect(new Set(b.map((p) => p.reportId))).toEqual(new Set([second.values.report!.id]));
   });
 });

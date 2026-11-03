@@ -1,10 +1,10 @@
-import { HumanMessage, type BaseMessage } from "@langchain/core/messages";
+import { AIMessage, HumanMessage, type BaseMessage } from "@langchain/core/messages";
 import { Command } from "@langchain/langgraph";
 import type { ApprovalRequest, HumanDecision } from "./approval.js";
 import type { Agent } from "./create-agent.js";
 import type { Intent } from "./intents.js";
 import { AGENT_RECURSION_LIMIT } from "./limits.js";
-import { sectionStatus } from "./report/render.js";
+import type { Plan } from "./plan.js";
 import type { Section } from "./report/state.js";
 import { parseThreadId } from "./thread-id.js";
 import { getStatus } from "./threads.js";
@@ -14,8 +14,8 @@ import { UsageTracker } from "./usage-tracker.js";
 export interface TurnResult {
   /** Respuesta final. Vacía si el turno quedó esperando una aprobación (ahí manda `awaiting`). */
   reply: string;
-  /** Ruta que eligió el router y por qué. */
-  route: { intent?: Intent; reason?: string };
+  /** Ruta que eligió el router y por qué; `tasks`, las partes del pedido en el orden en que se hacen (fase 7). */
+  route: { intent?: Intent; reason?: string; tasks?: { intent: Intent; request: string }[] };
   summary: TurnSummary;
   /** El grafo se pausó: hay una acción propuesta esperando la decisión (`resumeTurn`). */
   awaiting?: ApprovalRequest;
@@ -27,6 +27,17 @@ export interface TurnResult {
 export type TurnAgent = Pick<Agent, "graph">;
 
 type TurnInput = { messages: HumanMessage[] } | Command | null;
+
+/**
+ * La respuesta de un turno: lo que contestó cada agente, en orden (fase 7). Cuenta un mensaje de IA con texto y sin
+ * llamadas a herramientas; el texto que acompaña a una llamada ("voy a consultar…") no es una respuesta.
+ */
+export function turnReply(messages: BaseMessage[]): string {
+  return messages
+    .filter((m) => AIMessage.isInstance(m) && !m.tool_calls?.length && m.text.trim().length > 0)
+    .map((m) => m.text)
+    .join("\n\n");
+}
 
 /**
  * @param already cuántos mensajes del hilo ya existían (y no son de esta llamada) cuando se invoca. El resumen
@@ -41,25 +52,27 @@ async function invokeTurn(agent: TurnAgent, threadId: string, input: TurnInput, 
     recursionLimit: AGENT_RECURSION_LIMIT,
     callbacks: [tracker],
   });
-  const messages: BaseMessage[] = state.messages;
   // Cuando el grafo se pausa, `invoke` devuelve el estado hasta ahí más `__interrupt__` con lo que pidió `interrupt`.
+  // La pausa ocurre dentro del subgrafo de acciones, y `invoke` la informa igual en el grafo principal.
   const interrupts = (state as { __interrupt__?: { value: unknown }[] }).__interrupt__;
   const awaiting = interrupts?.map((i) => i.value as ApprovalRequest).find((v) => v?.kind === "approve_action");
+  // Durante una pausa, los mensajes del subgrafo todavía no volvieron al grafo principal: se leen del hilo guardado.
+  const messages: BaseMessage[] = awaiting ? (await getStatus(agent.graph, threadId)).messages : state.messages;
+  const plan: Plan | undefined = state.plan;
+  const report = state.report;
   return {
     // El texto del modelo que acompaña a una acción propuesta no se muestra como respuesta: manda la tarjeta.
-    reply: awaiting ? "" : (messages.at(-1)?.text ?? ""),
-    route: { intent: state.intent, reason: state.intentReason },
+    reply: awaiting ? "" : turnReply(messages.slice(already)),
+    route: {
+      intent: state.intent,
+      reason: state.intentReason,
+      ...(plan && { tasks: plan.tasks.map((t) => ({ intent: t.intent, request: t.request })) }),
+    },
     summary: summarizeTurn(messages.slice(already), tracker.usage()),
     ...(awaiting && { awaiting }),
-    // `state.report` queda en el hilo después de un reporte: solo cuenta si ESTE turno fue un reporte.
-    ...(state.intent === "report" && state.report
-      ? {
-          report: {
-            label: state.report.label,
-            ...(state.report.notice && { notice: state.report.notice }),
-            sections: sectionStatus(state.report, state.reportParts),
-          },
-        }
+    // `state.report` queda en el hilo después de un reporte: solo cuenta si ESTE turno tuvo un reporte terminado.
+    ...(!awaiting && plan?.tasks.some((t) => t.intent === "report") && report?.sections
+      ? { report: { label: report.label, ...(report.notice && { notice: report.notice }), sections: report.sections } }
       : {}),
   };
 }

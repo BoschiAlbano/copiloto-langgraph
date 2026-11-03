@@ -12,6 +12,7 @@ export interface Snapshot {
     messages?: BaseMessage[];
     intent?: Intent;
     intentReason?: string;
+    // Privados del subgrafo de acciones (fase 7): solo aparecen en el estado de ese subgrafo.
     pendingAction?: PendingAction | null;
     approval?: Approval | null;
   };
@@ -20,11 +21,18 @@ export interface Snapshot {
   config: { configurable?: Record<string, unknown> };
   metadata?: { source?: string; step?: number };
   createdAt?: string;
+  /**
+   * Las tareas del próximo paso. Con `getState(…, { subgraphs: true })`, la de un subgrafo que quedó a medias (por
+   * ejemplo, pausado esperando una aprobación) trae en `state` el estado de ese subgrafo.
+   */
+  tasks?: { id?: string; name: string; state?: unknown; error?: unknown }[];
 }
 
+type ThreadConfig = { configurable: { thread_id: string; checkpoint_ns?: string } };
+
 export interface ThreadGraph {
-  getState(config: { configurable: { thread_id: string } }): Promise<Snapshot>;
-  getStateHistory(config: { configurable: { thread_id: string } }): AsyncIterableIterator<Snapshot>;
+  getState(config: ThreadConfig, options?: { subgraphs?: boolean }): Promise<Snapshot>;
+  getStateHistory(config: ThreadConfig): AsyncIterableIterator<Snapshot>;
 }
 
 export const FIRST_MESSAGE_CHARS = 80;
@@ -51,28 +59,60 @@ export interface ThreadStatus {
   messages: BaseMessage[];
 }
 
-/** Estado actual de un hilo, a partir de su último checkpoint. */
+const isSnapshot = (value: unknown): value is Snapshot =>
+  typeof value === "object" && value !== null && "values" in value && Array.isArray((value as Snapshot).next);
+
+/**
+ * El estado más adentro que quedó a medias: si un subgrafo está pausado (o se cortó) a mitad de camino, es el de ese
+ * subgrafo; si no, el mismo. Ahí están lo privado (la propuesta) y los mensajes que el subgrafo todavía no devolvió.
+ */
+async function innermost(
+  graph: ThreadGraph,
+  threadId: string,
+  snapshot: Snapshot,
+  path: string[] = [],
+): Promise<{ inner: Snapshot; path: string[] }> {
+  for (const task of snapshot.tasks ?? []) {
+    // Si el subgrafo se pausó, la tarea trae su estado. Si falló, trae el error pero no el estado: se lo pide por su
+    // espacio de nombres (`nodo:id-de-la-tarea`), que es donde el checkpointer guardó sus pasos.
+    let state = isSnapshot(task.state) ? task.state : undefined;
+    if (!state && task.error !== undefined && task.id) {
+      const parent = String(snapshot.config.configurable?.checkpoint_ns ?? "");
+      const ns = parent ? `${parent}|${task.name}:${task.id}` : `${task.name}:${task.id}`;
+      state = await graph.getState({ configurable: { thread_id: threadId, checkpoint_ns: ns } });
+    }
+    if (state && state.next.length > 0) return innermost(graph, threadId, state, [...path, task.name]);
+  }
+  return { inner: snapshot, path };
+}
+
+/** Estado actual de un hilo, a partir de su último checkpoint (y del de su subgrafo, si quedó uno a medias). */
 export async function getStatus(graph: ThreadGraph, threadId: string): Promise<ThreadStatus> {
-  const snapshot = await graph.getState({ configurable: { thread_id: parseThreadId(threadId) } });
-  const action = snapshot.values.pendingAction;
+  const id = parseThreadId(threadId);
+  const snapshot = await graph.getState({ configurable: { thread_id: id } }, { subgraphs: true });
+  // Desde la fase 7 la pausa ocurre DENTRO del subgrafo de acciones: la propuesta es privada de él.
+  const { inner, path } = await innermost(graph, id, snapshot);
+  const action = inner.values.pendingAction;
   // La tarjeta se reconstruye del estado guardado (no del resultado de un `invoke`): así se puede mostrar tras reiniciar.
   const awaiting: ApprovalRequest | undefined =
-    snapshot.next.includes(APPROVAL_NODE) && action
+    inner.next.includes(APPROVAL_NODE) && action
       ? {
           kind: "approve_action",
           action,
-          ...(snapshot.values.approval?.decision === "invalid" && snapshot.values.approval.error
-            ? { error: snapshot.values.approval.error }
+          ...(inner.values.approval?.decision === "invalid" && inner.values.approval.error
+            ? { error: inner.values.approval.error }
             : {}),
-          ...(snapshot.values.approval?.decision === "revised" ? { edited: true as const } : {}),
+          ...(inner.values.approval?.decision === "revised" ? { edited: true as const } : {}),
         }
       : undefined;
   return {
     exists: snapshot.config.configurable?.checkpoint_id !== undefined,
     pending: snapshot.next.length > 0 && !awaiting,
     ...(awaiting && { awaiting }),
-    next: snapshot.next,
-    messages: snapshot.values.messages ?? [],
+    // Si lo pendiente está dentro de un subgrafo, con su ruta: "action_graph/execute_action".
+    next: path.length ? inner.next.map((n) => [...path, n].join("/")) : snapshot.next,
+    // Los del subgrafo a medias incluyen los del grafo principal más lo que ese subgrafo ya escribió.
+    messages: inner.values.messages ?? snapshot.values.messages ?? [],
   };
 }
 
@@ -148,10 +188,14 @@ export interface CheckpointInfo {
   createdAt?: string;
 }
 
-/** Historia de checkpoints de un hilo, del más nuevo al más viejo. Solo se inspecciona; no se modifica. */
-export async function getHistory(graph: ThreadGraph, threadId: string): Promise<CheckpointInfo[]> {
+/**
+ * Historia de checkpoints de un hilo, del más nuevo al más viejo. Solo se inspecciona; no se modifica. Es la del grafo
+ * principal (o la de un subgrafo, si se pasa su espacio de nombres): el paso por un subgrafo cuenta como UN paso.
+ */
+export async function getHistory(graph: ThreadGraph, threadId: string, namespace?: string): Promise<CheckpointInfo[]> {
   const snapshots: Snapshot[] = [];
-  for await (const snapshot of graph.getStateHistory({ configurable: { thread_id: parseThreadId(threadId) } })) {
+  const config = { configurable: { thread_id: parseThreadId(threadId), ...(namespace && { checkpoint_ns: namespace }) } };
+  for await (const snapshot of graph.getStateHistory(config)) {
     snapshots.push(snapshot);
   }
   return snapshots.map((snapshot, i) => ({
@@ -164,6 +208,43 @@ export async function getHistory(graph: ThreadGraph, threadId: string): Promise<
     intent: snapshot.values.intent,
     createdAt: snapshot.createdAt,
   }));
+}
+
+/** Una corrida de un subgrafo dentro de un hilo: cada vez que el supervisor le pasó una tarea (fase 7). */
+export interface SubgraphRun {
+  /** El espacio de nombres de sus checkpoints, `nodo:id-de-la-tarea` (por ejemplo `action_graph:3f2a…`). */
+  namespace: string;
+  /** El nodo del grafo principal que la corrió: `query_graph`, `action_graph` o `report_graph`. */
+  node: string;
+  /** Sus checkpoints, del más nuevo al más viejo. */
+  checkpoints: CheckpointInfo[];
+}
+
+/**
+ * Las corridas de subgrafos de un hilo, de la más vieja a la más nueva, con sus pasos internos. Cada subgrafo guarda
+ * sus checkpoints con el mismo checkpointer que el grafo principal, en su propio espacio de nombres; LangGraph no
+ * ofrece "listar espacios de nombres", así que se sacan del checkpointer (que, sin `checkpoint_ns`, devuelve todos).
+ */
+export async function getSubgraphHistory(
+  graph: ThreadGraph,
+  saver: Pick<BaseCheckpointSaver, "list">,
+  threadId: string,
+): Promise<SubgraphRun[]> {
+  const id = parseThreadId(threadId);
+  const firstSeen = new Map<string, string>();
+  for await (const tuple of saver.list({ configurable: { thread_id: id } })) {
+    const ns = String(tuple.config.configurable?.checkpoint_ns ?? "");
+    const ts = tuple.checkpoint.ts;
+    if (ns && (!firstSeen.has(ns) || ts < firstSeen.get(ns)!)) firstSeen.set(ns, ts);
+  }
+  const namespaces = [...firstSeen.entries()].sort((a, b) => a[1].localeCompare(b[1])).map(([ns]) => ns);
+  return Promise.all(
+    namespaces.map(async (namespace) => ({
+      namespace,
+      node: namespace.split("|").at(-1)!.split(":")[0]!,
+      checkpoints: await getHistory(graph, id, namespace),
+    })),
+  );
 }
 
 /** Borra el hilo de las tres tablas del checkpointer. Los demás hilos no se tocan. */

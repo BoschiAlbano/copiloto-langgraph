@@ -1,85 +1,21 @@
-import { AIMessage, type BaseMessage } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import { END, START, StateGraph, type BaseCheckpointSaver } from "@langchain/langgraph";
-import { ToolNode } from "@langchain/langgraph/prebuilt";
-import { isActionName } from "../tools/actions/schemas.js";
-import type { Intent } from "./intents.js";
-import { makeActionAgentNode } from "./nodes/action-agent.js";
-import { makeApprovalNode, makeExecuteActionNode, makeProposeActionNode, type ActionRunner } from "./nodes/actions.js";
-import { makeAgentNode, type AgentModel } from "./nodes/agent.js";
+import { buildActionGraph } from "../agents/action.js";
+import { buildQueryGraph } from "../agents/query.js";
+import { buildReportGraph } from "../agents/report.js";
+import type { ActionRunner } from "./nodes/actions.js";
+import type { AgentModel } from "./nodes/agent.js";
 import { makeChatNode } from "./nodes/chat.js";
 import { makeClarifyNode } from "./nodes/clarify.js";
+import type { PlanModel, SectionRunner } from "./nodes/report.js";
 import { makeRouterNode, type RouterModel } from "./nodes/router.js";
-import {
-  fanOutReport,
-  makeComposeReportNode,
-  makePlanReportNode,
-  makeSectionNode,
-  SECTION_NODES,
-  type PlanModel,
-  type SectionRunner,
-} from "./nodes/report.js";
-import { AgentState, type AgentStateType } from "./state.js";
-
-/** Nodo al que va cada intención. Al ser un Record<Intent, …>, TypeScript exige cubrirlas todas. */
-const ROUTES: Record<Intent, "agent" | "chat" | "action_agent" | "plan_report" | "clarify"> = {
-  query: "agent",
-  chat: "chat",
-  action: "action_agent",
-  report: "plan_report",
-  unclear: "clarify",
-};
-
-/** Arista condicional del router: lee `intent` y devuelve el nombre del próximo nodo. */
-export function routeByIntent(state: AgentStateType) {
-  // Sin intención (no debería pasar) se usa la rama de solo lectura.
-  return state.intent ? ROUTES[state.intent] : "agent";
-}
-
-const lastToolCalls = (state: AgentStateType) => {
-  const last: BaseMessage | undefined = state.messages.at(-1);
-  return last && AIMessage.isInstance(last) ? (last.tool_calls ?? []) : [];
-};
-
-/** Arista condicional del agente de consultas: si el modelo pidió herramientas, vamos a `tools`; si no, terminamos. */
-export function routeAfterAgent(state: AgentStateType): "tools" | typeof END {
-  return lastToolCalls(state).length ? "tools" : END;
-}
-
-/**
- * Arista condicional del agente de acciones:
- *  - nada pedido → termina (respondió o hizo una pregunta);
- *  - alguna ACCIÓN pedida → `propose_action` (aunque venga mezclada: ahí se rechaza la mezcla);
- *  - solo consultas → `tools`.
- */
-export function routeAfterActionAgent(state: AgentStateType): "tools" | "propose_action" | typeof END {
-  const calls = lastToolCalls(state);
-  if (calls.length === 0) return END;
-  return calls.some((c) => isActionName(c.name)) ? "propose_action" : "tools";
-}
-
-/** Después de las consultas se vuelve al agente que las pidió: el de acciones si el pedido es una acción. */
-export function routeAfterTools(state: AgentStateType): "agent" | "action_agent" {
-  return state.intent === "action" ? "action_agent" : "agent";
-}
-
-/** Una propuesta válida espera la decisión; una inválida vuelve al modelo como error de herramienta. */
-export function routeAfterPropose(state: AgentStateType): "await_approval" | "action_agent" {
-  return state.pendingAction ? "await_approval" : "action_agent";
-}
-
-/**
- * Solo una aprobación o un rechazo pasan a `execute_action`. Una decisión que no se pudo usar (formato o edición
- * inválida) o una edición válida (`revised`: hay que aprobar lo editado) vuelven a preguntar.
- */
-export function routeAfterApproval(state: AgentStateType): "execute_action" | "await_approval" {
-  const decision = state.approval?.decision;
-  return decision === "approved" || decision === "rejected" ? "execute_action" : "await_approval";
-}
+import { supervise } from "./nodes/supervisor.js";
+import { AGENT_NODE_NAMES } from "./plan.js";
+import { AgentState } from "./state.js";
 
 export interface BuildGraphOptions {
   models: {
-    /** Clasifica el pedido (salida estructurada). */
+    /** Parte el pedido en tareas (salida estructurada). */
     router: RouterModel;
     /** Con las herramientas de consulta ya enlazadas (bindTools). */
     agent: AgentModel;
@@ -94,7 +30,7 @@ export interface BuildGraphOptions {
     /** SIN herramientas: escribe la «Lectura» de un reporte a partir de datos ya calculados. */
     report: AgentModel;
   };
-  /** Las herramientas de CONSULTA, para que `tools` pueda ejecutarlas. Nunca incluye acciones. */
+  /** Las herramientas de CONSULTA, para los ToolNode de los agentes de consultas y de acciones. Nunca incluye acciones. */
   tools: StructuredToolInterface[];
   /** Prepara y ejecuta las acciones aprobadas. */
   actions: ActionRunner;
@@ -104,59 +40,42 @@ export interface BuildGraphOptions {
   now?: () => Date;
   /** Avisos de quien opera el sistema (por ejemplo, salida inválida del router). */
   warn?: (message: string) => void;
-  /** Guarda el estado después de cada paso, por thread_id. Las acciones lo necesitan: sin él no se puede pausar. */
+  /** Guarda el estado después de cada paso, por thread_id, también el de los subgrafos. Las acciones lo necesitan. */
   checkpointer?: BaseCheckpointSaver;
 }
 
 /**
- *                       ┌─ query   → agent ⇄ tools → END
- *                       ├─ chat    → chat          → END
- *  START → router ──────┼─ report  → report_stub   → END
- *                       ├─ unclear → clarify       → END
- *                       └─ action  → action_agent ─┬─ nada → END
- *                              ▲        │          ├─ consultas → tools ─┐ (vuelve a action_agent)
- *                              │        │          └─ una acción → propose_action ─┬─ inválida → action_agent
- *                              │        │                                          └─ válida → await_approval ⟲ (interrupt)
- *                              └────────┴──────────────────── execute_action ◀──────────────────┘
+ * Grafo principal (fase 7): un supervisor reparte el plan del router entre agentes especializados.
+ *
+ *  START → router → supervisor ─┬─ query_graph  ─┐   (subgrafo: agent ⇄ tools)
+ *            (plan)    ▲        ├─ action_graph ─┤   (subgrafo: aprobación con interrupt)
+ *                      │        ├─ report_graph ─┤   (subgrafo: tres secciones en paralelo)
+ *                      │        ├─ chat         ─┤
+ *                      │        ├─ clarify      ─┤
+ *                      │        └─ END           │
+ *                      └─────────────────────────┘   cada agente vuelve al supervisor por una arista fija
+ *
+ * Los tres subgrafos se agregan como nodos: comparten con este grafo los campos del mismo nombre (`messages`, `plan`
+ * y, el de reportes, `report`) y guardan sus pasos con el mismo checkpointer, en su propio espacio de nombres.
  */
 export function buildGraph({ models, tools, actions, reportSections, now, warn, checkpointer }: BuildGraphOptions) {
   return (
     new StateGraph(AgentState)
       .addNode("router", makeRouterNode(models.router, { warn }))
-      .addNode("agent", makeAgentNode(models.agent, { now }))
-      // handleToolErrors: una excepción de la herramienta vuelve al modelo como mensaje de error.
-      // Es el ÚNICO ToolNode y solo conoce herramientas de consulta: una acción pedida acá da "no existe".
-      .addNode("tools", new ToolNode(tools, { handleToolErrors: true }))
+      // Devuelve un Command (actualización + destino): los destinos posibles se declaran en `ends`.
+      .addNode("supervisor", supervise, { ends: [...AGENT_NODE_NAMES, END] })
+      .addNode("query_graph", buildQueryGraph({ model: models.agent, tools, now }))
+      .addNode("action_graph", buildActionGraph({ model: models.action, tools, actions, now }))
+      .addNode("report_graph", buildReportGraph({ plan: models.reportPlan, reading: models.report, sections: reportSections, now, warn }))
       .addNode("chat", makeChatNode(models.chat))
-      .addNode("plan_report", makePlanReportNode(models.reportPlan, { now, warn }))
-      // Las tres secciones se lanzan a la vez con Send (ver fanOutReport); ninguna llama a un modelo.
-      // Reciben una entrada propia (no el estado), por eso el tipo se fuerza.
-      .addNode(SECTION_NODES.sales, makeSectionNode("sales", reportSections) as never)
-      .addNode(SECTION_NODES.appointments, makeSectionNode("appointments", reportSections) as never)
-      .addNode(SECTION_NODES.stock, makeSectionNode("stock", reportSections) as never)
-      .addNode("compose_report", makeComposeReportNode(models.report, { warn }))
       .addNode("clarify", makeClarifyNode(models.clarify))
-      .addNode("action_agent", makeActionAgentNode(models.action, { now }))
-      .addNode("propose_action", makeProposeActionNode(actions, { now }))
-      // Se llama await_approval y no approval: LangGraph no admite un nodo con el nombre de un campo del estado.
-      .addNode("await_approval", makeApprovalNode(actions, { now }))
-      .addNode("execute_action", makeExecuteActionNode(actions, { now }))
       .addEdge(START, "router")
-      .addConditionalEdges("router", routeByIntent, ["agent", "chat", "action_agent", "plan_report", "clarify"])
-      .addConditionalEdges("agent", routeAfterAgent, ["tools", END])
-      .addConditionalEdges("tools", routeAfterTools, ["agent", "action_agent"])
-      .addConditionalEdges("action_agent", routeAfterActionAgent, ["tools", "propose_action", END])
-      .addConditionalEdges("propose_action", routeAfterPropose, ["await_approval", "action_agent"])
-      .addConditionalEdges("await_approval", routeAfterApproval, ["execute_action", "await_approval"])
-      .addEdge("execute_action", "action_agent")
-      .addEdge("chat", END)
-      // Fan-out: plan_report devuelve tres Send. Fan-in: las tres secciones convergen en compose_report, que corre una vez.
-      .addConditionalEdges("plan_report", fanOutReport, [SECTION_NODES.sales, SECTION_NODES.appointments, SECTION_NODES.stock])
-      .addEdge(SECTION_NODES.sales, "compose_report")
-      .addEdge(SECTION_NODES.appointments, "compose_report")
-      .addEdge(SECTION_NODES.stock, "compose_report")
-      .addEdge("compose_report", END)
-      .addEdge("clarify", END)
+      .addEdge("router", "supervisor")
+      .addEdge("query_graph", "supervisor")
+      .addEdge("action_graph", "supervisor")
+      .addEdge("report_graph", "supervisor")
+      .addEdge("chat", "supervisor")
+      .addEdge("clarify", "supervisor")
       .compile({ checkpointer })
   );
 }

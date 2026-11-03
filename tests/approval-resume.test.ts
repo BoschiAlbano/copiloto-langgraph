@@ -161,7 +161,7 @@ describe.skipIf(!checkpointsUrl)("aprobación sobre hilos guardados", () => {
 
     const status = await getStatus(p.graph, id);
     expect(status.awaiting).toBeUndefined();
-    expect(status).toMatchObject({ pending: true, next: ["execute_action"] });
+    expect(status).toMatchObject({ pending: true, next: ["action_graph/execute_action"] });
     await expect(runTurn(p.agent, id, "otra cosa")).rejects.toBeInstanceOf(ThreadPendingError);
 
     // No hace falta decidir de nuevo: la decisión ya está guardada. Se continúa y se ejecuta.

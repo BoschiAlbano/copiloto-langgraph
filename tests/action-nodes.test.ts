@@ -8,13 +8,13 @@ import {
   ONE_ACTION_ONLY,
   type ActionRunner,
 } from "../src/graph/nodes/actions.js";
-import { makeState, type AgentStateType } from "../src/graph/state.js";
+import { makeState, type NodeState } from "../src/graph/state.js";
 import type { ExecutionOutcome } from "../src/tools/actions/execute.js";
 import { ToolUserError } from "../src/tools/safe.js";
 import { toolCall } from "./helpers/models.js";
 
 const config = { configurable: { thread_id: "hilo-1" } };
-const state = (over: Partial<AgentStateType>) => makeState([], { intent: "action", pendingAction: null, approval: null, ...over });
+const state = (over: Partial<NodeState>) => makeState([], { intent: "action", pendingAction: null, approval: null, ...over });
 
 const prepared = {
   tool: "cancelAppointment" as const,
@@ -130,7 +130,7 @@ describe("execute_action", () => {
   it("CA1 d: sin aprobación, o con una de otra acción, no llega a la base", async () => {
     const runner = fakeRunner();
     const run = makeExecuteActionNode(runner);
-    const refused: Partial<AgentStateType>[] = [
+    const refused: Partial<NodeState>[] = [
       { pendingAction: null, approval: null },
       { pendingAction: action, approval: null },
       { pendingAction: action, approval: { actionId: "hilo-1:otra", decision: "approved" } },

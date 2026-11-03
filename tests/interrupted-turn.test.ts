@@ -125,7 +125,7 @@ describe.skipIf(!checkpointsUrl)("turno a medias", () => {
     const second = openCheckpointing();
     const graphB = build(second.saver, [], () => new AIMessage("Hay 7 turnos."));
     const pending = await getStatus(graphB, id);
-    expect(pending).toMatchObject({ pending: true, next: ["agent"] });
+    expect(pending).toMatchObject({ pending: true, next: ["query_graph/agent"] });
     // Ya están la pregunta, el pedido de herramienta y su resultado: lo único que falta es la respuesta final.
     expect(pending.messages.map((m) => m.type)).toEqual(["human", "ai", "tool"]);
 

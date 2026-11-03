@@ -117,3 +117,17 @@ export function agentInput(system: string, state: TaskState): BaseMessage[] {
     ...state.messages.slice(at),
   ];
 }
+
+/**
+ * El nodo del grafo principal que atiende cada intención: tres subgrafos (consultas, acciones y reportes) y dos nodos
+ * simples (charla y aclaración). Al ser un Record<Intent, …>, TypeScript exige cubrirlas todas.
+ */
+export const AGENT_NODES = {
+  query: "query_graph",
+  action: "action_graph",
+  report: "report_graph",
+  chat: "chat",
+  unclear: "clarify",
+} as const satisfies Record<Intent, string>;
+export type AgentNode = (typeof AGENT_NODES)[Intent];
+export const AGENT_NODE_NAMES = Object.values(AGENT_NODES) as [AgentNode, ...AgentNode[]];

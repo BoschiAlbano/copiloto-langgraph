@@ -3,34 +3,31 @@ import { MessagesValue, ReducedValue, StateSchema } from "@langchain/langgraph";
 import { z } from "zod";
 import { approvalSchema, pendingActionSchema } from "./approval.js";
 import { INTENTS } from "./intents.js";
-import { planSchema } from "./plan.js";
+import { AGENT_NODE_NAMES, planSchema } from "./plan.js";
 import { mergeParts, partSchema, reportSchema } from "./report/state.js";
 
+// Estado del grafo PRINCIPAL (fase 7): lo que comparten el router, el supervisor y los agentes.
 // MessagesValue es un campo con reducer: cada nodo devuelve mensajes nuevos
 // y LangGraph los agrega al historial en lugar de reemplazarlo.
-// `intent` no tiene reducer: el último valor escrito reemplaza al anterior (lo escribe el router).
+// Los demás campos no tienen reducer: el último valor escrito reemplaza al anterior.
 export const AgentState = new StateSchema({
   messages: MessagesValue,
+  // La intención de la primera tarea del plan (la escribe el router).
   intent: z.enum(INTENTS).optional(),
   // Por qué el router eligió esa ruta: se muestra en la terminal y servirá al inspeccionar checkpoints.
   intentReason: z.string().optional(),
-  // Las tareas del turno (fase 7): las escribe el router y las recorre el supervisor. Se reemplaza en cada mensaje.
+  // Las tareas del turno: las escribe el router y las recorre el supervisor. Se reemplaza en cada mensaje.
   plan: planSchema.optional(),
-  // Acción que el modelo pidió y espera la decisión de la persona (fase 5). Sin reducer; `null` cuando no hay ninguna.
-  pendingAction: pendingActionSchema.nullable().optional(),
-  // Decisión ya procesada sobre esa acción. `null` cuando no hay ninguna.
-  approval: approvalSchema.nullable().optional(),
-  // Reporte en curso (fase 6): período y título. Se reemplaza en cada pedido de reporte.
+  // El agente que atiende la tarea en curso (lo escribe el supervisor); `null` cuando terminó el turno.
+  activeAgent: z.enum(AGENT_NODE_NAMES).nullable().optional(),
+  // Reporte del turno (fase 6): período, título y estado de cada sección. Lo comparte el subgrafo de reportes.
   report: reportSchema.optional(),
-  // Resultados de las tres secciones del reporte. CON reducer: las tres secciones escriben en el mismo paso y sus
-  // partes se concatenan; un reporte nuevo (otro `reportId`) reemplaza todo lo anterior.
-  reportParts: new ReducedValue(z.array(partSchema).default([]), { reducer: mergeParts }),
 });
 
 export type AgentStateType = typeof AgentState.State;
 
-// Estados de los subgrafos (fase 7). Un subgrafo agregado como nodo recibe del grafo principal los campos que tienen
-// el MISMO nombre en los dos esquemas, y al terminar devuelve solo esos: son el estado compartido. Los campos que el
+// Estados de los subgrafos. Un subgrafo agregado como nodo recibe del grafo principal los campos que tienen el
+// MISMO nombre en los dos esquemas, y al terminar devuelve solo esos: son el estado compartido. Los campos que el
 // subgrafo tiene y el principal no son privados: viven en los checkpoints del subgrafo y nadie más los ve.
 
 /** Consultas: solo lo compartido (el historial y el plan del turno, para saber qué parte le toca). */
@@ -66,15 +63,19 @@ export const ActionState = new StateSchema({
 });
 export type ActionStateType = typeof ActionState.State;
 
-/** Estado completo para llamar a un nodo suelto (fuera de un grafo), por ejemplo en tests y evaluaciones. */
-export const makeState = (messages: BaseMessage[], overrides: Partial<AgentStateType> = {}): AgentStateType => ({
+/** Todos los campos que puede leer algún nodo: el estado principal más los privados de cada subgrafo. */
+export type NodeState = AgentStateType & Omit<ActionStateType, keyof AgentStateType> & Omit<ReportStateType, keyof AgentStateType>;
+
+/** Estado para llamar a un nodo suelto (fuera de un grafo), por ejemplo en tests y evaluaciones. */
+export const makeState = (messages: BaseMessage[], overrides: Partial<NodeState> = {}): NodeState => ({
   messages,
   intent: undefined,
   intentReason: undefined,
   plan: undefined,
+  activeAgent: undefined,
+  report: undefined,
   pendingAction: undefined,
   approval: undefined,
-  report: undefined,
   reportParts: [],
   ...overrides,
 });

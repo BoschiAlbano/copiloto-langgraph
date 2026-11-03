@@ -23,7 +23,8 @@ describe.skipIf(!hasDb)("reporte con la base real", () => {
       now: () => NOW,
     });
     const result = await graph.invoke({ messages: [new HumanMessage("resumen")] });
-    return { text: result.messages.at(-1)!.text, report: result.report!, parts: result.reportParts };
+    // Las partes son privadas del subgrafo de reportes (fase 7): al grafo principal llega el estado de cada sección.
+    return { text: result.messages.at(-1)!.text, report: result.report!, sections: result.report!.sections! };
   };
 
   const local = "(created_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::date";
@@ -66,8 +67,8 @@ describe.skipIf(!hasDb)("reporte con la base real", () => {
   });
 
   it("incluye las tres secciones aunque el período no tenga ventas todavía (hoy)", async () => {
-    const { text, parts } = await run("today");
-    expect(parts.map((p: { section: string }) => p.section).sort()).toEqual(["appointments", "sales", "stock"]);
+    const { text, sections } = await run("today");
+    expect(sections).toEqual({ sales: "ok", appointments: "ok", stock: "ok" });
     for (const title of ["\nVentas\n", "\nTurnos\n", "\nStock\n"]) expect(text).toContain(title);
   });
 
