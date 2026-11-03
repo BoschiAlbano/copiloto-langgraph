@@ -12,9 +12,12 @@ export interface Checkpointing {
   close: () => Promise<void>;
 }
 
-/** Conecta con el rol copilot_checkpointer. Las tablas ya existen: las crea `npm run db:checkpoints`. */
-export function createCheckpointing(url: string): Checkpointing {
-  const pool = new pg.Pool({ connectionString: url, max: 5 });
+/**
+ * Conecta con el rol copilot_checkpointer. Las tablas ya existen: las crea `npm run db:checkpoints`.
+ * `maxConnections`: los tests abren varios a la vez y el pooler del Supabase local admite 20 clientes en total.
+ */
+export function createCheckpointing(url: string, { maxConnections = 5 } = {}): Checkpointing {
+  const pool = new pg.Pool({ connectionString: url, max: maxConnections });
   // Sin este oyente, una conexión ociosa que se cae tumba el proceso entero.
   pool.on("error", (error) => console.warn(`[checkpointer] conexión ociosa caída: ${error.message}`));
   const saver = new PostgresSaver(pool, undefined, { schema: CHECKPOINT_SCHEMA });
