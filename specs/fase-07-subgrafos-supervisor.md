@@ -129,6 +129,104 @@ tests/plan-*.test.ts, tests/supervisor*.test.ts, tests/agents/*.test.ts, tests/w
 
 `src/agents/` es la carpeta que el plan del proyecto reservó para los subgrafos.
 
+## Mapas
+
+**1. El grafo principal y sus tres subgrafos**
+
+```mermaid
+flowchart TD
+    S((START)) --> R["router<br/>Haiku: parte el pedido en tareas<br/>el código normaliza el plan"]
+    R --> SV{{"supervisor<br/>código, sin modelo"}}
+    SV -. "Command: query" .-> QG
+    SV -. "Command: action" .-> AG
+    SV -. "Command: report" .-> RG
+    SV -. "Command: chat / unclear" .-> CC["chat · clarify"]
+    SV -. "sin tareas pendientes" .-> E((END))
+
+    subgraph QG["query_graph"]
+        direction LR
+        QA["agent"] <--> QT["tools<br/>(propio)"]
+    end
+    subgraph AG["action_graph"]
+        direction LR
+        AA["action_agent"] <--> AT["tools<br/>(propio)"]
+        AA --> AP["propose_action"] --> AW["await_approval<br/>⏸ interrupt"] --> AX["execute_action"] --> AA
+    end
+    subgraph RG["report_graph"]
+        direction LR
+        RP["plan_report"] -- "Send ×3" --> RS["ventas · turnos · stock<br/>(mismo paso)"] --> RC["compose_report"]
+    end
+
+    QG --> SV
+    AG --> SV
+    RG --> SV
+    CC --> SV
+```
+
+El supervisor es el centro de una estrella: cada agente vuelve a él y él decide quién sigue. Ningún agente conoce a los otros. Por dentro, los subgrafos son los de las fases 2, 5 y 6, cada uno con su propio `tools`.
+
+**2. Estado compartido y privado**
+
+```mermaid
+flowchart LR
+    subgraph P["Estado del grafo principal"]
+        direction TB
+        M["messages"]
+        PL["plan · activeAgent"]
+        IN["intent · intentReason"]
+        RE["report<br/>(con el estado de cada sección)"]
+    end
+    subgraph A["action_graph"]
+        AP["pendingAction · approval<br/>PRIVADOS"]
+    end
+    subgraph R["report_graph"]
+        RP["reportParts<br/>PRIVADO, con reducer"]
+    end
+    subgraph Q["query_graph"]
+        QN["(nada privado)"]
+    end
+    M <-->|"mismo nombre: entra y vuelve"| A
+    M <--> R
+    M <--> Q
+    PL -- "cada agente lee su tarea" --> A
+    PL --> R
+    PL --> Q
+    RE <-->|"compartido"| R
+    AP -. "se guarda en su espacio de nombres<br/>y sobrevive a la pausa" .-> CK[("checkpointer")]
+    RP -.-> CK
+```
+
+Lo que se comparte son los campos con el **mismo nombre** en los dos esquemas. Lo privado no sale del subgrafo: el principal no lo ve, pero queda guardado en los checkpoints del subgrafo, y por eso la tarjeta de aprobación se puede reconstruir tras reiniciar.
+
+**3. Un pedido mixto, de punta a punta** («registrá la venta y decime cuánto stock queda»)
+
+```mermaid
+sequenceDiagram
+    actor U as Persona
+    participant T as Terminal
+    participant R as router
+    participant S as supervisor
+    participant A as action_graph
+    participant Q as query_graph
+    participant D as Base
+    U->>T: registrá la venta y decime cuánto stock queda
+    T->>R: mensaje nuevo
+    R-->>S: plan: 1. action · 2. query
+    S->>A: tarea 1 (Command)
+    A->>D: busca el producto (solo lectura)
+    A-->>T: ⏸ interrupt: tarjeta de la venta
+    Note over T,A: el hilo queda pausado DENTRO del subgrafo;<br/>sobrevive a cerrar el programa
+    U->>T: s (aprobar)
+    T->>A: Command({ resume })
+    A->>D: registra la venta y la auditoría (una transacción)
+    A-->>S: «Venta registrada.»
+    S->>Q: tarea 2, con la indicación de seguir
+    Q->>D: consulta el stock (ya con la venta)
+    Q-->>S: «Quedan 24.»
+    S-->>T: fin del turno
+    T-->>U: Venta registrada. Quedan 24.
+```
+
 ## Tareas
 Una tarea = un commit en la rama `dev/fase-07`.
 
@@ -183,6 +281,3 @@ Una tarea = un commit en la rama `dev/fase-07`.
 - **Lo que escribe un agente lo lee el siguiente.** Comparten `messages`, así que la respuesta de uno es el contexto del otro, en el mismo turno y en los siguientes. Hacen falta reglas para leer lo ajeno: el agente de consultas trataba el reporte, escrito por el código, como una respuesta suya sin respaldo, y lo «corregía». El estado compartido es un contrato entre agentes, no solo un canal de datos.
 - **Partir en subgrafos ordenó los tests.** La mecánica de cada agente se prueba sobre su subgrafo (22 tests de aprobación sin tocar sus aserciones), y el grafo completo, sobre los caminos y los pedidos mixtos. La forma de cada grafo quedó fijada en un test (`tests/graph-shape.test.ts`).
 - Dudas abiertas: si conviene achicar o cachear el prompt del router (lo que encareció un 5 % el pedido simple); si el agente de consultas de un pedido mixto debería volver a consultar siempre después de una acción aprobada (con Sonnet usó un dato leído antes, que con la acción rechazada era correcto, pero tras aprobar podría estar viejo); cuándo usar un supervisor con modelo; y cómo mostrar en la interfaz web (fase 9) qué agente está trabajando.
-
-## Qué aprendí
-(Se completa al cerrar.)
