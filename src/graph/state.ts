@@ -29,6 +29,17 @@ export const AgentState = new StateSchema({
 
 export type AgentStateType = typeof AgentState.State;
 
+// Estados de los subgrafos (fase 7). Un subgrafo agregado como nodo recibe del grafo principal los campos que tienen
+// el MISMO nombre en los dos esquemas, y al terminar devuelve solo esos: son el estado compartido. Los campos que el
+// subgrafo tiene y el principal no son privados: viven en los checkpoints del subgrafo y nadie más los ve.
+
+/** Consultas: solo lo compartido (el historial y el plan del turno, para saber qué parte le toca). */
+export const QueryState = new StateSchema({
+  messages: MessagesValue,
+  plan: planSchema.optional(),
+});
+export type QueryStateType = typeof QueryState.State;
+
 /** Estado completo para llamar a un nodo suelto (fuera de un grafo), por ejemplo en tests y evaluaciones. */
 export const makeState = (messages: BaseMessage[], overrides: Partial<AgentStateType> = {}): AgentStateType => ({
   messages,

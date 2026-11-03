@@ -1,8 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { BaseMessage } from "@langchain/core/messages";
-import { SystemMessage } from "@langchain/core/messages";
 import { describeNow } from "../../tools/dates.js";
-import type { AgentStateType } from "../state.js";
+import { agentInput, type TaskState } from "../plan.js";
 
 /**
  * Lo mínimo que el nodo necesita del modelo. En producción es ChatAnthropic con las
@@ -23,11 +22,12 @@ export function renderSystemPrompt(now: Date) {
  * Un nodo es una función (estado) => actualización parcial del estado.
  * Si la respuesta trae tool_calls, la arista condicional manda el grafo al nodo de
  * herramientas; si no, la conversación termina. El reducer agrega la respuesta a `messages`.
+ * Si el turno tiene varias tareas (fase 7), el prompt dice cuál le toca (ver `agentInput`).
  */
 export function makeAgentNode(model: AgentModel, options: { now?: () => Date } = {}) {
   const now = options.now ?? (() => new Date());
-  return async (state: AgentStateType) => {
-    const reply = await model.invoke([new SystemMessage(renderSystemPrompt(now())), ...state.messages]);
+  return async (state: TaskState) => {
+    const reply = await model.invoke(agentInput(renderSystemPrompt(now()), state));
     return { messages: [reply] };
   };
 }
