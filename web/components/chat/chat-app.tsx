@@ -1,8 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { MoonIcon, PlayIcon, SunIcon, TriangleAlertIcon, XIcon } from "lucide-react"
-import { useTheme } from "next-themes"
+import { PlayIcon, TriangleAlertIcon, XIcon } from "lucide-react"
 import type { ThreadSummary } from "@copilot/graph/threads"
 import type { ThreadView } from "@copilot/web/handlers"
 import type { PageStatus } from "@copilot/web/turn-view"
@@ -23,6 +22,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Spinner } from "@/components/ui/spinner"
+import { ThemeToggle } from "@/components/theme-toggle"
 import { useChat } from "@/hooks/use-chat"
 import { fetchThreads } from "@/lib/api"
 import { costOf, usd } from "@/lib/format"
@@ -40,16 +40,6 @@ const STATUS: Record<PageStatus, { label: string; variant: "secondary" | "outlin
 }
 
 const SUGGESTIONS = ["¿Cuántos turnos hay mañana?", "¿Cuánto stock queda de cera mate?", "Armame el resumen de la semana."]
-
-function ThemeToggle() {
-  const { resolvedTheme, setTheme } = useTheme()
-  return (
-    <Button variant="ghost" size="icon-sm" aria-label="Cambiar entre tema claro y oscuro" onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}>
-      <SunIcon className="hidden dark:block" />
-      <MoonIcon className="dark:hidden" />
-    </Button>
-  )
-}
 
 export function ChatApp({ initial, initialThreads }: { initial: ThreadView; initialThreads: ThreadSummary[] }) {
   const [threads, setThreads] = React.useState(initialThreads)
