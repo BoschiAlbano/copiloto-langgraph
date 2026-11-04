@@ -15,8 +15,11 @@ Convención de los diagramas: **línea continua** = arista fija (siempre ocurre)
 | 5 | 10 (`router`, `agent`, `tools`, `chat`, `report_stub`, `clarify`, `action_agent`, `propose_action`, `await_approval`, `execute_action`) | 5 | 16 | 21 | `messages`, `intent`, `intentReason`, `pendingAction`, `approval` | Acciones con aprobación humana: `interrupt`, `Command({ resume })`, rol de escritura acotado y auditoría |
 | 6 | 14 (los de la fase 5 menos `report_stub`, más `plan_report`, `report_sales`, `report_appointments`, `report_stock` y `compose_report`) | 8 | 19 | 27 | `messages`, `intent`, `intentReason`, `pendingAction`, `approval`, `report`, `reportParts` | Reportes en paralelo: fan-out con `Send`, fan-in y un reducer que concatena |
 | 7 | 7 en el principal (`router`, `supervisor`, `query_graph`, `action_graph`, `report_graph`, `chat`, `clarify`); los tres `*_graph` son subgrafos con 2, 5 y 5 nodos | 7 | 6 | 13 (más 4, 10 y 8 dentro de los subgrafos) | principal: `messages`, `intent`, `intentReason`, `plan`, `activeAgent`, `report`; privados: `pendingAction` y `approval` (acciones), `reportParts` (reportes) | Subgrafos con estado compartido y privado, y un supervisor que traspasa el control con `Command`: pedidos mixtos |
+| 8 | 9 en el principal (los de la fase 7 más `load_memory` y `memory`); subgrafos sin cambios | 9 | 7 | 16 (más 4, 10 y 8 dentro de los subgrafos) | principal: los de la fase 7 más `businessContext` (compartido con consultas y acciones); privados, igual que en la fase 7 | Memoria de largo plazo: un Store de Postgres que no depende del hilo, leído al empezar cada turno |
 
 Qué cambió de la fase 1 a la 2: el nodo `chat` pasó a llamarse `agent` y ahora puede pedir herramientas; apareció el nodo `tools`; la arista `chat → END` se volvió condicional (`agent → END` solo si no hay llamadas pendientes) y se sumó `tools → agent`, que cierra el ciclo.
+
+Qué cambió de la fase 7 a la 8: el turno ya no empieza en el router sino en `load_memory`, que lee las memorias del negocio del **Store** y las deja en `businessContext`; el supervisor tiene un destino más, `memory`, que guarda, lista y borra memorias. El grafo se compila también con el Store (`compile({ checkpointer, store })`) y LangGraph se lo da a cada nodo en `config.store`. Los subgrafos no cambiaron: reciben las memorias por el estado.
 
 Qué cambió de la fase 6 a la 7: el grafo plano se partió en **tres subgrafos** (consultas, acciones y reportes) que el grafo principal usa como nodos, y un **supervisor** reparte entre ellos el plan que arma el router. Los nodos de las fases 2 a 6 siguen existiendo con el mismo nombre, pero adentro de su subgrafo. Cada subgrafo tiene su propio `tools`, así que `routeAfterTools` (que miraba `intent` para saber a quién volver) desapareció. Del estado principal salieron los tres campos que usaba un solo agente (ahora son privados) y entraron `plan` y `activeAgent`.
 
@@ -392,8 +395,60 @@ Los nodos con doble borde son **subgrafos**: grafos compilados agregados como un
 
 ---
 
+## Fase 8: memoria de largo plazo (`fase-08`)
+
+```mermaid
+flowchart TD
+    S((START)) -->|"fija"| LM["load_memory<br/>lee el Store → businessContext"]
+    LM -->|"fija"| R["router"]
+    R -->|"fija"| SV{{"supervisor"}}
+    SV -.->|"memory"| M["memory<br/>Haiku decide la operación;<br/>el código valida, escribe y contesta"]
+    SV -.->|"query · action · report"| AG[["query_graph · action_graph · report_graph<br/>(sin cambios)"]]
+    SV -.->|"chat · unclear"| C["chat · clarify"]
+    SV -.->|"sin tareas"| E((END))
+    M -->|"fija"| SV
+    AG -->|"fija"| SV
+    C -->|"fija"| SV
+    LM -. "config.store" .-> ST[("Store · langgraph<br/>negocio / memorias<br/>(sin thread_id)")]
+    M -. "config.store" .-> ST
+```
+
+**Resumen:** 9 nodos propios en el grafo principal, 2 especiales, 9 aristas fijas y 7 condicionales: **16 conexiones** (comprobado con `getGraphAsync()` en `tests/graph-shape.test.ts`). Las 7 condicionales son los destinos del supervisor (`ends`): seis agentes y `END`. Los subgrafos no cambiaron.
+
+| Nodo | Quién lo escribió | Qué hace | Modelo | Escribe en el estado |
+| --- | --- | --- | --- | --- |
+| `load_memory` | Nosotros (`nodes/load-memory.ts`) | Lee las memorias del Store (`config.store`) al empezar cada turno; sin Store, ninguna | ninguno | `businessContext` |
+| `memory` | Nosotros (`nodes/memory.ts`) | Guarda, lista o borra una memoria. El modelo elige la operación y escribe el texto; el código aplica `checkMemory` (qué no se guarda), escribe en el Store y arma la respuesta | `MODEL_ROUTER` con salida estructurada | 1 mensaje de IA y `businessContext` (lo anotado ya vale para las tareas siguientes del turno) |
+
+| # | Desde | Hasta | Tipo | Cómo se declara (`src/graph/index.ts`) |
+| --- | --- | --- | --- | --- |
+| 1 | `START` | `load_memory` | Fija | `.addEdge(START, "load_memory")` |
+| 2 | `load_memory` | `router` | Fija | `.addEdge("load_memory", "router")` |
+| 3 | `router` | `supervisor` | Fija | `.addEdge("router", "supervisor")` |
+| 4–10 | `supervisor` | los 6 agentes y `END` | `Command({ goto })` | `ends` del nodo `supervisor` |
+| 11–16 | cada agente (también `memory`) | `supervisor` | Fijas | `.addEdge(agente, "supervisor")` |
+
+**Memoria del hilo y memoria entre hilos:**
+
+| | Checkpointer (fase 4) | Store (fase 8) |
+| --- | --- | --- |
+| Qué guarda | El estado completo de un hilo, paso a paso | Datos sueltos por namespace y clave (`["negocio", "memorias"]`, id) |
+| Quién lo ve | Solo ese `thread_id` | Todos los hilos |
+| Cómo llega al grafo | `compile({ checkpointer })` y el `thread_id` de cada invocación | `compile({ store })`; cada nodo lo recibe en `config.store` |
+| Quién escribe | LangGraph, después de cada paso | El nodo `memory`, solo cuando la persona lo pide |
+| Ejemplo | «me llamo Ana» queda en el hilo A | «los lunes no se agendan turnos» vale en A, en B y en los que vengan |
+
+| Situación | Camino en el principal | Notas |
+| --- | --- | --- |
+| Pedido sin memoria | `START → load_memory → router → supervisor → <agente> → supervisor → END` | Con memorias, el agente las recibe en su prompt |
+| Anotar, listar u olvidar | `… → supervisor → memory → supervisor → END` | La respuesta la arma el código |
+| Anotar y consultar en el mismo mensaje | `… → memory → supervisor → query_graph → supervisor → END` | La memoria va primero; la consulta ya la tiene en el prompt |
+| Algo que no se guarda (cliente, cifras, seguridad) | `… → memory → supervisor → END` | «No lo anoté: …»; el Store no cambia |
+
+---
+
 ## Próximas fases (planeado, aún no existe)
 
 | Fase | Cambio previsto en el grafo |
 | --- | --- |
-| 8 | Un nodo lee las reglas del negocio de la memoria de largo plazo (Store) y las carga en `businessContext` |
+| 9 | Ninguno en la forma: el grafo se usa desde un chat web con streaming (modos valores, actualizaciones y mensajes) y la tarjeta de aprobación se resuelve desde la interfaz |

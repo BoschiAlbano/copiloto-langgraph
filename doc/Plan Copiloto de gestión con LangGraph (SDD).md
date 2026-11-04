@@ -87,7 +87,7 @@ Todo el proyecto va en TypeScript y se apoya en tu stack habitual, sumando LangG
 | Tests | Vitest | Nodos, herramientas y criterios de aceptación |
 | Entorno | Windows, PowerShell, Docker Desktop (WSL2) | Desarrollo local |
 
-**Versiones.** En la fase 1 se fijan versiones exactas en `package.json`; LangGraph se actualiza seguido (la serie Python iba por la 1.2.x en octubre de 2026). Confirmado en la fase 4 (leyendo el paquete publicado): checkpointer y Store para JS viven en el mismo paquete, `@langchain/langgraph-checkpoint-postgres` (1.1.2), con las clases `PostgresSaver` y `PostgresStore`; el Store se usa recién en la fase 8. Más detalle en la [documentación oficial de LangGraph](https://docs.langchain.com/oss/javascript/learn).
+**Versiones.** En la fase 1 se fijan versiones exactas en `package.json`; LangGraph se actualiza seguido (la serie Python iba por la 1.2.x en octubre de 2026). Confirmado en la fase 4 (leyendo el paquete publicado): checkpointer y Store para JS viven en el mismo paquete, `@langchain/langgraph-checkpoint-postgres` (1.1.2), con las clases `PostgresSaver` y `PostgresStore`; el Store se usa desde la fase 8 (`PostgresStore`, en el mismo esquema `langgraph` que los hilos). Más detalle en la [documentación oficial de LangGraph](https://docs.langchain.com/oss/javascript/learn).
 
 **Referencia de la versión TypeScript:** [guía de LangGraph en TypeScript](https://codehalwell.github.io/AgentGuides/langgraph-guide/typescript/).
 
@@ -114,7 +114,7 @@ El negocio de ejemplo necesita siete tablas propias más una de auditoría; las 
 | `sale_items` | id, sale\_id, product\_id o service\_id, qty, unit\_price | Detalle de cada venta |
 | `action_log` | id, thread\_id, action, payload, decision, decided\_at | Auditoría: qué propuso el agente y qué decidió la persona |
 
-**Tablas de LangGraph.** El checkpointer (estado por hilo de conversación) y el Store (memoria de largo plazo) crean sus propias tablas en el mismo Postgres; no se tocan a mano. Las del checkpointer viven en un esquema aparte, `langgraph`, y la aplicación entra con un rol propio (`copilot_checkpointer`) que solo lee y escribe datos ahí (fase 4).
+**Tablas de LangGraph.** El checkpointer (estado por hilo de conversación) y el Store (memoria de largo plazo, fase 8) crean sus propias tablas en el mismo Postgres; no se tocan a mano. Las del checkpointer viven en un esquema aparte, `langgraph`, y la aplicación entra con un rol propio (`copilot_checkpointer`) que solo lee y escribe datos ahí (fase 4).
 
 **Datos de prueba.** Un script de seed genera unos 90 días de historial: turnos, ventas y movimientos de stock coherentes entre sí, para que los reportes tengan sentido.
 
@@ -135,7 +135,7 @@ El estado crece fase a fase: arranca con solo los mensajes y termina con once ca
 | `reportParts` | Secciones de un reporte armadas en paralelo (ventas, turnos y stock) | Se concatenan; un reporte nuevo (otro `reportId`) reemplaza las partes del anterior | 6 |
 | `plan` | Las tareas del turno (intención, parte del pedido y estado de cada una) y un aviso opcional | Reemplaza el valor (lo escribe el router; el supervisor marca cada tarea) | 7 |
 | `activeAgent` | Agente que atiende la tarea en curso (`null` al terminar el turno) | Reemplaza el valor | 7 |
-| `businessContext` | Reglas y preferencias leídas de la memoria | Reemplaza el valor | 8 |
+| `businessContext` | Reglas y preferencias leídas de la memoria (id, tipo y texto); compartido con los subgrafos de consultas y de acciones | Reemplaza el valor (lo escribe `load_memory` al empezar cada turno, y `memory` cuando anota o borra) | 8 |
 | `lastError` | Último error y cantidad de reintentos | Reemplaza e incrementa | 10 |
 
 **Herramientas.** Cada una tiene esquema Zod, descripción clara para el modelo y devuelve datos acotados (límite de filas).
@@ -353,6 +353,7 @@ La API Batch cobra la mitad en Sonnet 5.5 (1 y 5), útil para correr las evaluac
 | Acción con aprobación (medido en la fase 5) | US$ 0,032 | US$ 0,0019 |
 | Reporte en paralelo (medido en la fase 6; con Sonnet escribiendo la «Lectura») | US$ 0,005 | US$ 0,0009 |
 | Pedido mixto: acción y consulta (medido en la fase 7) | US$ 0,041 | US$ 0,0028 |
+| Anotar una regla en la memoria (medido en la fase 8) | US$ 0,0005 | US$ 0,0005 |
 | Set de evaluaciones (30 casos) | US$ 0,90 | US$ 0,05 |
 
 **Supuestos.** Una consulta típica son una llamada del router y dos del agente, con unos 7.000 tokens de entrada y 600 de salida en total. Para las 12 fases se calculan entre 50 y 150 corridas de prueba por fase y unas 12 corridas del set de evaluaciones.
@@ -366,7 +367,7 @@ La API Batch cobra la mitad en Sonnet 5.5 (1 y 5), útil para correr las evaluac
 
 **Notas**
 
-- Salvo la consulta típica, medida en las fases 2 y 3 (ver sus specs), son estimaciones propias, no mediciones. Con Sonnet como agente el costo medido es ~30 % menor que el estimado y el router de Haiku agrega solo ~US$ 0,0002 por turno (~1,5 %). Con Haiku como agente el router sí pesa (+30 %), porque el agente ya era muy barato. La acción con aprobación se midió en la fase 5 (una consulta previa, la propuesta y la respuesta tras la decisión: 4 llamadas y ~4.100 tokens de entrada por llamada, porque cada una lleva el prompt de acciones y las 8 definiciones de herramientas): +27 % con Haiku y +8 % con Sonnet respecto de la estimación. El reporte en paralelo se midió en la fase 6 y salió **muy por debajo** de la estimación (−94 % con Sonnet y −78 % con Haiku): en el diseño final las tres secciones no usan modelo (son consultas directas a la base) y solo hay dos llamadas baratas, el planificador del período (Haiku) y la «Lectura» (`MODEL_REPORT`), más el router; las cifras las escribe el código. La estimación original suponía un agente por sección. El pedido mixto (una acción y una consulta en el mismo mensaje) se midió en la fase 7: cuesta lo de una acción más una consulta corta (5 o 6 llamadas). Partir el pedido no suma llamadas, porque lo hace el mismo router; su prompt, más largo, encarece un ~5 % las consultas simples con Haiku (de US$ 0,0129 a US$ 0,0136 los 11 casos del bench).
+- Salvo la consulta típica, medida en las fases 2 y 3 (ver sus specs), son estimaciones propias, no mediciones. Con Sonnet como agente el costo medido es ~30 % menor que el estimado y el router de Haiku agrega solo ~US$ 0,0002 por turno (~1,5 %). Con Haiku como agente el router sí pesa (+30 %), porque el agente ya era muy barato. La acción con aprobación se midió en la fase 5 (una consulta previa, la propuesta y la respuesta tras la decisión: 4 llamadas y ~4.100 tokens de entrada por llamada, porque cada una lleva el prompt de acciones y las 8 definiciones de herramientas): +27 % con Haiku y +8 % con Sonnet respecto de la estimación. El reporte en paralelo se midió en la fase 6 y salió **muy por debajo** de la estimación (−94 % con Sonnet y −78 % con Haiku): en el diseño final las tres secciones no usan modelo (son consultas directas a la base) y solo hay dos llamadas baratas, el planificador del período (Haiku) y la «Lectura» (`MODEL_REPORT`), más el router; las cifras las escribe el código. La estimación original suponía un agente por sección. El pedido mixto (una acción y una consulta en el mismo mensaje) se midió en la fase 7: cuesta lo de una acción más una consulta corta (5 o 6 llamadas). Partir el pedido no suma llamadas, porque lo hace el mismo router; su prompt, más largo, encarece un ~5 % las consultas simples con Haiku (de US$ 0,0129 a US$ 0,0136 los 11 casos del bench). La memoria de largo plazo se midió en la fase 8: anotar una regla son dos llamadas al modelo barato (router y memoria; no depende del modelo de los agentes) y cada memoria en contexto suma unos 57 tokens a cada llamada de un agente (5 memorias: unos US$ 0,0001 por consulta con Haiku).
 - Los precios salen de páginas que reproducen la documentación oficial; confirmalos en la consola antes de cargar crédito.
 - El gasto de la IA con la que programás (el desarrollo con SDD) es aparte y depende de la herramienta y el plan que uses.
 - Todo lo demás corre en local (Supabase, grafo y app web), así que la API de Claude es el único gasto del proyecto.

@@ -7,6 +7,8 @@ import { newThreadId } from "../graph/thread-id.js";
 import { deleteThread } from "../graph/threads.js";
 import { costOfUsage, mergeUsage, totalUsage, type ModelUsage } from "../graph/usage-tracker.js";
 import { usd } from "./format.js";
+import { evalNamespace } from "../../evals/memory.js";
+import { clearMemories, saveMemory } from "../memory/store.js";
 
 // Mide el costo real de una batería de preguntas típicas: cada caso es un hilo nuevo (se borra al terminar).
 // Uso: npm run bench   (modelos de .env; se pueden pisar con $env:MODEL_AGENT y $env:MODEL_ROUTER)
@@ -15,6 +17,8 @@ interface Case {
   turns: string[];
   /** "base" = los 11 casos de la fase 2 (comparables); "extra" = ramas nuevas de la fase 3. */
   group: "base" | "extra";
+  /** Memorias del negocio en el Store durante el caso (fase 8); se borran al terminar. */
+  memories?: { kind: "rule" | "preference"; text: string }[];
 }
 
 const CASES: Case[] = [
@@ -52,6 +56,20 @@ const CASES: Case[] = [
     turns: ["Registrá la venta de un gel fijación fuerte en efectivo y decime cuánto stock queda."],
   },
   { group: "extra", name: "Mixto: stock y reporte del mes (M3)", turns: ["Decime cuánto stock queda de gel fijación fuerte y armame el resumen del mes."] },
+  // Memoria (fase 8): anotar una regla, y la consulta de «Turnos de mañana» con 5 memorias en contexto (compararla con esa).
+  { group: "extra", name: "Memoria: anotar una regla", turns: ["Acordate de que los lunes no se agendan turnos."] },
+  {
+    group: "extra",
+    name: "Turnos de mañana con 5 memorias en contexto",
+    turns: ["¿Cuántos turnos hay mañana?"],
+    memories: [
+      { kind: "rule", text: "Los lunes no se agendan turnos." },
+      { kind: "rule", text: "Los turnos de color duran 90 minutos." },
+      { kind: "rule", text: "Lucas no trabaja los sábados." },
+      { kind: "preference", text: "Decí los montos con la palabra pesos, sin el signo." },
+      { kind: "preference", text: "Contestá en no más de tres oraciones." },
+    ],
+  },
 ];
 
 // `npm run bench -- --extra` mide solo las ramas nuevas (más barato, útil con Sonnet).
@@ -59,7 +77,8 @@ const onlyExtra = process.argv.includes("--extra");
 const cases = onlyExtra ? CASES.filter((c) => c.group === "extra") : CASES;
 
 const env = loadEnv();
-const agent = createAgent(env);
+// Memoria en un namespace propio: el bench no toca las memorias del negocio.
+const agent = createAgent(env, { memoryNamespace: evalNamespace() });
 
 const benchThreads: string[] = [];
 const rows: Record<Case["group"], string[]> = { base: [], extra: [] };
@@ -68,6 +87,8 @@ const costByGroup: Record<Case["group"], number> = { base: 0, extra: 0 };
 
 for (const testCase of cases) {
   const threadId = newThreadId();
+  await clearMemories(agent.memory);
+  for (const m of testCase.memories ?? []) await saveMemory(agent.memory, m);
   let usage: ModelUsage[] = [];
   const tools: string[] = [];
   const routes: string[] = [];
@@ -99,6 +120,7 @@ for (const testCase of cases) {
     `| ${testCase.name}${error} | ${routes.join(", ") || "—"} | ${tools.join(", ") || "—"} | ${total.calls} | ${total.inputTokens} | ${total.outputTokens} | ${usd(cost).replace("US$ ", "")} |`,
   );
 }
+await clearMemories(agent.memory);
 await agent.close();
 
 // Los rechazos dejan filas en la auditoría: la batería es de medición, no de uso, así que las borra (con el dueño).

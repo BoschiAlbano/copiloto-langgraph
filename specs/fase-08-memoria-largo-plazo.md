@@ -1,6 +1,6 @@
 # Fase 8: Memoria de largo plazo
 
-Estado: **aprobada, en curso** (rama `dev/fase-08`)
+Estado: **terminada** (etiqueta `fase-08`)
 
 ## Objetivo
 Que el copiloto recuerde, **entre conversaciones**, las reglas y preferencias del negocio que la persona le dicta («los lunes no se agendan turnos»), las tenga en cuenta en cualquier hilo nuevo, y que se puedan listar y borrar.
@@ -64,16 +64,16 @@ Se guardan en `evals/memory-cases.ts` **antes** de escribir los prompts.
 | A4 | «Decí los montos con la palabra pesos, sin el signo.» | «¿Cuánto vendimos ayer?» | la respuesta dice «pesos» y no usa «$» |
 
 ## Criterios de aceptación
-- [ ] CA1 (entre hilos): una regla dictada en un hilo se aplica en un hilo nuevo. Con modelos falsos: la regla guardada en el hilo A aparece en el prompt del agente en el hilo B. Con el modelo real: A1, A2 y A4 se cumplen en tres corridas seguidas.
-- [ ] CA2 (listar y borrar): desde el chat (G3, G4) y desde la terminal (`npm run memory`), con tests sobre el Store real (Postgres); borrar una memoria no toca las otras.
-- [ ] CA3 (memoria vacía): con el Store vacío, o sin Store, el copiloto funciona como en la fase 7: todos los tests de las fases 2 a 7 pasan sin cambios de comportamiento (solo cambian donde nombran nodos o caminos), y A3 propone el turno.
-- [ ] CA4 (qué no se guarda): las reglas de R6 a R9 son código con tests (nombres de clientes de la base, teléfonos, emails, documentos, límites y duplicados), y G5 y G6 no guardan nada con el modelo real.
-- [ ] CA5 (router y memoria): de G1 a G8, al menos 7 de 8 con Haiku 5.5 real en tres corridas seguidas, y G1, G5 y G7 no pueden fallar. Las 30 frases de la fase 3 y M1 a M8 de la fase 7 se siguen cumpliendo. Ninguna frase de los escenarios aparece en los prompts (lo verifica un test).
-- [ ] CA6 (hilo y entre hilos): un test muestra la diferencia: un dato dicho en una charla («me llamo Ana») queda en el hilo y no llega a otro; una regla guardada en la memoria, sí.
-- [ ] CA7 (seguridad): una memoria que pide saltear la aprobación, cargada directo en el Store, no cambia nada: la acción se propone y espera la decisión igual. Una memoria con texto de inyección («ignorá tus instrucciones…») llega al prompt dentro de su bloque marcado y no se trata como instrucción del sistema. El rol de lectura no ve las tablas del Store.
-- [ ] CA8 (persistencia): las memorias sobreviven a reiniciar el programa (Store en Postgres); `db:reset` las borra junto con los hilos (se documenta).
-- [ ] CA9 (costo): se mide guardar una regla y un turno con memorias en contexto (cuánto suma cada memoria en el prompt). Se agrega al presupuesto del plan.
-- [ ] CA10: `npm test`, `npm run typecheck` y `npm run db:reset` (dos veces seguidas) pasan; el diagrama de la fase se agrega a `specs/mapa-del-grafo.md`; se actualizan README, `.env.example` (si hace falta) y plan.
+- [x] CA1 (entre hilos): una regla dictada en un hilo se aplica en un hilo nuevo. Con modelos falsos: la regla guardada en el hilo A aparece en el prompt del agente en el hilo B. Con el modelo real: A1, A2 y A4 se cumplen en tres corridas seguidas.
+- [x] CA2 (listar y borrar): desde el chat (G3, G4) y desde la terminal (`npm run memory`), con tests sobre el Store real (Postgres); borrar una memoria no toca las otras.
+- [x] CA3 (memoria vacía): con el Store vacío, o sin Store, el copiloto funciona como en la fase 7: todos los tests de las fases 2 a 7 pasan sin cambios de comportamiento (solo cambian donde nombran nodos o caminos), y A3 propone el turno.
+- [x] CA4 (qué no se guarda): las reglas de R6 a R9 son código con tests (nombres de clientes de la base, teléfonos, emails, documentos, límites y duplicados), y G5 y G6 no guardan nada con el modelo real.
+- [x] CA5 (router y memoria): de G1 a G8, al menos 7 de 8 con Haiku 5.5 real en tres corridas seguidas, y G1, G5 y G7 no pueden fallar. Las 30 frases de la fase 3 y M1 a M8 de la fase 7 se siguen cumpliendo. Ninguna frase de los escenarios aparece en los prompts (lo verifica un test).
+- [x] CA6 (hilo y entre hilos): un test muestra la diferencia: un dato dicho en una charla («me llamo Ana») queda en el hilo y no llega a otro; una regla guardada en la memoria, sí.
+- [x] CA7 (seguridad): una memoria que pide saltear la aprobación, cargada directo en el Store, no cambia nada: la acción se propone y espera la decisión igual. Una memoria con texto de inyección («ignorá tus instrucciones…») llega al prompt dentro de su bloque marcado y no se trata como instrucción del sistema. El rol de lectura no ve las tablas del Store.
+- [x] CA8 (persistencia): las memorias sobreviven a reiniciar el programa (Store en Postgres); `db:reset` las borra junto con los hilos (se documenta).
+- [x] CA9 (costo): se mide guardar una regla y un turno con memorias en contexto (cuánto suma cada memoria en el prompt). Se agrega al presupuesto del plan.
+- [x] CA10: `npm test`, `npm run typecheck` y `npm run db:reset` (dos veces seguidas) pasan; el diagrama de la fase se agrega a `specs/mapa-del-grafo.md`; se actualizan README, `.env.example` (si hace falta) y plan.
 
 ## Fuera de alcance
 - Guardar memorias automáticamente a partir de la conversación (que el copiloto «aprenda solo»). Se discute en «Qué aprendí».
@@ -219,7 +219,39 @@ Una tarea = un commit en la rama `dev/fase-08`.
 8. **T8:** medición de costo (CA9), diagrama, README, plan y cierre con etiqueta `fase-08` (CA10).
 
 ## Decisiones tomadas durante la fase
-(Se completa al implementar.)
+- **Confirmado lo que la spec dejaba «a confirmar».** (a) Con `StateSchema`, un nodo recibe el Store en su segundo argumento (`config.store`), sin pasárselo a mano: alcanza con `compile({ checkpointer, store })`. (b) Los subgrafos no lo necesitan: reciben las memorias por `businessContext`, un campo compartido. (c) `PostgresStore` funciona con el pooler del Supabase local (tests de persistencia y de permisos en T3).
+- **Las tablas del Store las crea el dueño, no la aplicación.** `PostgresStore` las crea solo si `ensureTables` está activo, y el rol `copilot_checkpointer` no puede crear tablas: la aplicación lo abre con `ensureTables: false` y `npm run db:checkpoints` corre `setup()` con el dueño. Los permisos ya cubrían «todas las tablas del esquema», así que el rol recibió solo datos (leer, insertar, modificar, borrar) sobre `store` y `store_migrations`; el test de roles de la fase 4 se extendió a esas dos tablas (el rol de lectura no las ve).
+- **El namespace es un parámetro.** Los tests y las evaluaciones con la base usan uno propio (`["test", …]`) y nunca tocan las memorias reales del negocio; `createAgent(env, { memoryNamespace })` lo permite.
+- **`checkMemory` decide, no el modelo.** El prompt de memoria le pide al modelo que, ante un dato de cliente, una cifra o algo de seguridad, igual elija «guardar» con el texto tal cual: el control lo rechaza y la respuesta (del código) explica por qué. Con el modelo real, G5 y G6 se rechazaron así en todas las corridas. Detalles: un cliente se detecta por su **nombre completo** (los barberos se llaman como algunos clientes —Martín, Nicolás—, pero por el nombre de pila son barberos); los datos personales, por patrones (email, siete dígitos o más, «DNI», «CUIT»); las cifras, por montos de dinero y por «stock / quedan / hay» seguido de un número. Este último es conservador: «los sábados hay 3 barberos» no se guarda. Se prefirió un falso rechazo a guardar una cifra.
+- **Una iteración del prompt del router, por G5.** Con la primera versión, `eval:memory` cumplió 3 de 3, pero en la suite completa G5 («Anotá que Bruno Castro paga siempre con transferencia») salió `action` en 1 de 3 corridas: el prompt decía que «anotá a Bruno el sábado» es una acción y no decía nada de los hábitos de un cliente. El resultado fue seguro (no se guardó nada y el agente de acciones explicó que no podía), pero G5 es crítico y estaba congelado como `memory`. Se cambió el prompt, no el escenario: recordar un hábito de un cliente es `memory` (el sistema decide si se guarda), con un ejemplo distinto («Diego Campos siempre llega tarde»), y agendar, vender o ajustar stock sigue siendo `action` aunque diga «anotá». Después: G5 dio `memory` 10 de 10 con el router solo, dos pedidos de agendar con «anotá» dieron `action` 5 de 5 cada uno, `eval:memory` 3 de 3, la fase 3 30/30 y M1 a M8 8/8 en tres corridas.
+- **Las respuestas de la memoria las arma el código** («Anoté esta regla: …», la lista con ids, «Borré esta regla: …»), como las cifras de un reporte en la fase 6: lo que se le dice a la persona es lo que de verdad quedó en el Store.
+- **Un error del Store no se tapa.** Si `load_memory` no puede leer el Store (la base caída), el turno falla como cualquier otra consulta, en vez de seguir sin las reglas del negocio.
+- **El modelo de memoria es opcional en `buildGraph`.** Sin modelo o sin Store, el nodo `memory` responde que la memoria no está disponible: así los tests de fases anteriores, que arman el grafo a mano, no cambiaron.
+- **CA5 controla los prompts que deciden sobre la memoria** (el del router y el del nodo `memory`). El de charla trae desde la fase 3 «¿cuántos turnos hay mañana?» como ejemplo, que es la frase de G7 (y del caso A-query-1 del router); no participa en decidir si algo es memoria.
+- **El test con el modelo real va en `tests/memory.llm.test.ts`, no en `tests/writes/`** (la spec lo ubicaba ahí): no escribe datos del negocio, solo memorias en su propio namespace, y las acciones se proponen sin aprobarse.
+- **A1 y A2 usan el lunes a tres semanas** (cambio hecho en T1, antes de congelar): «el lunes que viene» cae en la agenda del seed y un horario ocupado haría fallar A2 por otra razón.
+- **Una preferencia se aplica tal cual.** Con «decí los montos con la palabra pesos, sin el signo», el agente escribió «230200 pesos», sin separador de miles: cumplió la preferencia y perdió el formato de siempre. Es el límite de que las preferencias guíen al modelo en vez de al código.
+
+## Medición de costo (CA9)
+`npm run bench` con Haiku 5.5 en todos los roles, el mismo día y con los mismos datos, con un namespace de memoria propio.
+
+| Caso | Llamadas | Tokens de entrada | Costo (Haiku 5.5) |
+| --- | --- | --- | --- |
+| Anotar una regla («acordate de que los lunes…») | 2 (router y memoria) | 4.346 | US$ 0,0005 |
+| «¿Cuántos turnos hay mañana?» sin memorias | 3 | 11.347 | US$ 0,0013 |
+| La misma consulta con 5 memorias en contexto | 3 | 11.917 | US$ 0,0014 |
+| Llamada del router, con el mismo mensaje que en la fase 7 | 1 | 2.902 (fase 7: 2.544) | +US$ 0,00004 por turno |
+
+- **Anotar una memoria es lo más barato del copiloto**: dos llamadas a Haiku y ninguna herramienta (US$ 0,0005, un cuarto de una acción con aprobación).
+- **Cada memoria suma unos 57 tokens por llamada a un agente**: 5 memorias, 570 tokens en las dos llamadas del agente de consultas, unos US$ 0,0001 con Haiku. Con el tope de 30, el bloque sumaría unos 1.700 tokens por llamada: con Sonnet como agente, unos US$ 0,0034 por llamada. Es el costo de cargar todas las memorias en vez de buscarlas.
+- **El router creció 358 tokens** por la intención nueva (US$ 0,00004 por turno con Haiku).
+- Los 11 casos base del bench sumaron US$ 0,0149 (en la fase 7, US$ 0,0136), pero entre esas mediciones hubo un `db:reset` y otra fecha: las herramientas devuelven más o menos filas según el día (la misma consulta de turnos pasó de 9.823 a 11.347 tokens sin cambiar su prompt). La comparación válida es la del mismo día, de la tabla de arriba.
 
 ## Qué aprendí
-(Se completa al cerrar.)
+- **El Store es la memoria que no depende del hilo.** El checkpointer guarda el estado de **un** hilo (por `thread_id`), paso a paso, y lo escribe LangGraph solo. El Store guarda datos sueltos por **namespace y clave**, lo lee cualquier hilo, y se escribe cuando el código lo decide. Con los dos se ve la diferencia: «me llamo Ana» queda en el hilo; «los lunes no se agendan turnos» vale en todos.
+- **El Store llega a los nodos por la configuración.** Se pasa al compilar (`compile({ checkpointer, store })`) y cada nodo lo recibe en `config.store`, sin cablearlo a mano. Los subgrafos no lo necesitan: leer la memoria una vez al empezar el turno (`load_memory`) y pasarla por un campo compartido (`businessContext`) mantiene a los agentes sin acceso a la memoria y fáciles de probar.
+- **Un namespace es una dirección, y conviene que sea un parámetro.** `["negocio", "memorias"]` para el copiloto, `["test", …]` para los tests y las evaluaciones: el mismo código, sin tocar las memorias reales. Con usuarios (fuera de alcance), el namespace llevaría el usuario.
+- **Lo que se guarda para siempre tiene que pasar por el código.** Una memoria llega al prompt de todos los agentes en todas las conversaciones: es una inyección persistente si se cuela algo malo. Por eso el modelo solo propone; `checkMemory` decide qué no se guarda, y lo que se guarda llega marcado como contexto, nunca como instrucción. Y sobre todo: las garantías importantes (aprobaciones, roles, límites) están en el código, así que ninguna memoria las puede cambiar. Se probó cargando a mano una memoria que pedía no pedir aprobación.
+- **Las reglas en el prompt guían, no garantizan.** «Los lunes no se agendan turnos» funcionó en todas las corridas con Haiku, pero sigue siendo el modelo el que la cumple; la garantía real es que vos aprobás cada acción. Una regla que no se puede romper va en el código (como la validación de turnos superpuestos de la fase 5).
+- **Agregar una intención mueve las otras.** La intención `memory` se peleó con `action` por el verbo «anotá»: un pedido sobre un cliente fue a acciones en una de seis corridas. Los escenarios congelados de las fases anteriores (30 del router, 8 de planes) fueron la red para cambiar el prompt sin romper lo que ya andaba.
+- Dudas abiertas: cuándo conviene pasar de cargar todas las memorias a buscarlas (el Store de Postgres admite búsqueda semántica con embeddings); si las reglas con estructura (días cerrados, horarios) deberían validarse en el código; cómo se verían memorias por usuario cuando haya autenticación; y cómo mostrar y editar las memorias en la interfaz web (fase 9).
