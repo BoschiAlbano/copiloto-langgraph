@@ -10,6 +10,8 @@ const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..")
 const nextConfig: NextConfig = {
   // web/ tiene su propio package-lock.json, pero el código del servidor también vive en ../src.
   outputFileTracingRoot: repoRoot,
+  // El indicador de desarrollo de Next, abajo a la derecha: abajo a la izquierda tapa la barra de hilos.
+  devIndicators: { position: "bottom-right" },
   experimental: {
     // Compilar archivos de fuera de web/ (../src).
     externalDir: true,
