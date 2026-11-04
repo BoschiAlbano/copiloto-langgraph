@@ -16,8 +16,11 @@ Convención de los diagramas: **línea continua** = arista fija (siempre ocurre)
 | 6 | 14 (los de la fase 5 menos `report_stub`, más `plan_report`, `report_sales`, `report_appointments`, `report_stock` y `compose_report`) | 8 | 19 | 27 | `messages`, `intent`, `intentReason`, `pendingAction`, `approval`, `report`, `reportParts` | Reportes en paralelo: fan-out con `Send`, fan-in y un reducer que concatena |
 | 7 | 7 en el principal (`router`, `supervisor`, `query_graph`, `action_graph`, `report_graph`, `chat`, `clarify`); los tres `*_graph` son subgrafos con 2, 5 y 5 nodos | 7 | 6 | 13 (más 4, 10 y 8 dentro de los subgrafos) | principal: `messages`, `intent`, `intentReason`, `plan`, `activeAgent`, `report`; privados: `pendingAction` y `approval` (acciones), `reportParts` (reportes) | Subgrafos con estado compartido y privado, y un supervisor que traspasa el control con `Command`: pedidos mixtos |
 | 8 | 9 en el principal (los de la fase 7 más `load_memory` y `memory`); subgrafos sin cambios | 9 | 7 | 16 (más 4, 10 y 8 dentro de los subgrafos) | principal: los de la fase 7 más `businessContext` (compartido con consultas y acciones); privados, igual que en la fase 7 | Memoria de largo plazo: un Store de Postgres que no depende del hilo, leído al empezar cada turno |
+| 9 | 9 (los mismos) | 9 | 7 | 16 (más 4, 10 y 8 dentro de los subgrafos) | los mismos que en la fase 8 | Streaming: el turno corre con `graph.stream` (modos `values`, `updates` y `messages`, con subgrafos) y un chat web lo muestra en vivo. Cambia cómo se invoca el grafo, no su forma |
 
 Qué cambió de la fase 1 a la 2: el nodo `chat` pasó a llamarse `agent` y ahora puede pedir herramientas; apareció el nodo `tools`; la arista `chat → END` se volvió condicional (`agent → END` solo si no hay llamadas pendientes) y se sumó `tools → agent`, que cierra el ciclo.
+
+Qué cambió de la fase 8 a la 9: nada en nodos, aristas ni estado. Todo turno (de la terminal o de la web) corre con `graph.stream` en vez de `graph.invoke`, y cada dato que sale del grafo se traduce a un evento de la interfaz (`toUiEvents`). Un efecto en los modelos: el modo `messages` le pide a cada modelo que transmita, así que los de salida estructurada (router, memoria, período del reporte) se crearon con `disableStreaming` para que contesten todo junto.
 
 Qué cambió de la fase 7 a la 8: el turno ya no empieza en el router sino en `load_memory`, que lee las memorias del negocio del **Store** y las deja en `businessContext`; el supervisor tiene un destino más, `memory`, que guarda, lista y borra memorias. El grafo se compila también con el Store (`compile({ checkpointer, store })`) y LangGraph se lo da a cada nodo en `config.store`. Los subgrafos no cambiaron: reciben las memorias por el estado.
 
@@ -447,8 +450,43 @@ flowchart TD
 
 ---
 
+## Fase 9: streaming y chat web (`fase-09`)
+
+El grafo es el de la fase 8. Lo nuevo es cómo se lo invoca y qué sale de él mientras corre.
+
+```mermaid
+flowchart LR
+    G[["grafo de la fase 8<br/>graph.stream(values, updates, messages)<br/>subgraphs: true"]] --> T{{"toUiEvents<br/>(src/web/events.ts)"}}
+    T -->|"messages · nodo que contesta"| TK["token"]
+    T -->|"updates · router"| RT["route"]
+    T -->|"updates · supervisor"| AG["agent (empieza / termina)"]
+    T -->|"updates · IA con tool_calls"| TS["tool_start + paso"]
+    T -->|"updates · ToolMessage"| TE["tool_end · action_result"]
+    T -->|"updates · sección del reporte"| RS["report_section"]
+    T -->|"updates · IA sin tool_calls"| MS["message (reemplaza los tokens)"]
+    T -->|"updates · __interrupt__ (raíz)"| AP["approval → tarjeta"]
+    T -->|"values · raíz, al final"| DN["done (TurnResult)"]
+    TK & RT & AG & TS & TE & RS & MS & AP & DN --> SSE[("SSE → navegador<br/>applyEvent → página")]
+    DN --> CLI["terminal (runTurn)<br/>usa solo done"]
+```
+
+| Modo de LangGraph | Qué entrega | Para qué se usa |
+| --- | --- | --- |
+| `messages` | Cada fragmento de texto de un modelo, con el nodo y el namespace que lo produjo | Los tokens de la respuesta. Solo de los nodos que contestan (`agent` y `action_agent` dentro de sus subgrafos, `chat`, `clarify`); los de salida estructurada no transmiten (`disableStreaming`) y la «Lectura» del reporte no se muestra en vivo (el código la puede descartar) |
+| `updates` | Lo que devolvió cada nodo, también dentro de los subgrafos (`subgraphs: true`) | La ruta, qué agente trabaja, cada herramienta pedida y terminada, las secciones del reporte, los mensajes terminados y la pausa de aprobación (se toma la de la raíz; la del subgrafo llega repetida) |
+| `values` | El estado completo del grafo principal después de cada paso | El último es el final: con él se arma el mismo `TurnResult` que antes devolvía `invoke` (al pausarse llega además un dato que es solo `{ __interrupt__ }`, que no es el estado) |
+
+| Situación | Eventos, en orden |
+| --- | --- |
+| Consulta con herramienta | `route` → `agent` (empieza) → `tool_start` → `tool_end` → `token`… → `message` → `agent` (termina) → `done` |
+| Acción | `route` → `agent` → (`tool_start`/`tool_end` si consulta algo) → `approval` → `done` con `awaiting`; al decidir: `action_result` → `token`… → `message` → `done` |
+| Reporte | `route` → `agent` → `report_section` ×3 → `message` (entero) → `done` |
+| Corte (se cierra la página) | se corta el turno (`signal`): el hilo queda a medias y «Continuar» lo termina |
+
+---
+
 ## Próximas fases (planeado, aún no existe)
 
 | Fase | Cambio previsto en el grafo |
 | --- | --- |
-| 9 | Ninguno en la forma: el grafo se usa desde un chat web con streaming (modos valores, actualizaciones y mensajes) y la tarjeta de aprobación se resuelve desde la interfaz |
+| 10 | Políticas de reintento en nodos y herramientas, un nodo de recuperación y repetir una ejecución desde un checkpoint anterior (viaje en el tiempo) |

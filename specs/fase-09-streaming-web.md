@@ -1,6 +1,6 @@
 # Fase 9: Streaming y chat web
 
-Estado: **en curso** (spec aprobada; la interfaz va con shadcn/ui y Tailwind)
+Estado: **terminada** (etiqueta `fase-09`)
 
 ## Objetivo
 Usar el copiloto desde un **chat web** con la respuesta **en vivo**: el texto aparece a medida que el modelo lo escribe, se ve qué agente trabaja y qué herramienta usa mientras ocurre, las acciones se aprueban, rechazan o editan con una **tarjeta**, y recargar la página retoma el mismo hilo.
@@ -100,38 +100,38 @@ Se guardan en `evals/web-cases.ts` **antes** de escribir la interfaz. Se corren 
 W3 y W4 escriben en la base: van en las pruebas de escritura y después se corre `db:reset`.
 
 ## Criterios de aceptación
-- [ ] CA1 (en vivo): la respuesta aparece de forma progresiva.
+- [x] CA1 (en vivo): la respuesta aparece de forma progresiva.
   - Con modelos falsos que transmiten tokens: los eventos `token` llegan antes que `done` y en orden, y su texto unido es igual al del mensaje final.
   - Con el modelo real: W1 en el navegador en tres corridas.
   - Se registra el tiempo hasta el primer token frente al tiempo total.
-- [ ] CA2 (herramientas en vivo): las llamadas a herramientas se muestran mientras ocurren.
+- [x] CA2 (herramientas en vivo): las llamadas a herramientas se muestran mientras ocurren.
   - Con modelos falsos: el orden es `tool_start`, después `tool_end`, después los tokens de la respuesta.
   - El texto que acompaña a una herramienta queda como paso, no como respuesta.
   - En el navegador: W1.
-- [ ] CA3 (tarjeta): aprobar, rechazar o editar desde la tarjeta reanuda el grafo (W2, W3 y W4 con el modelo real).
+- [x] CA3 (tarjeta): aprobar, rechazar o editar desde la tarjeta reanuda el grafo (W2, W3 y W4 con el modelo real).
   - Con modelos falsos: una edición inválida muestra el motivo y la acción sigue pendiente.
   - Dos decisiones simultáneas sobre el mismo hilo ejecutan la acción una sola vez: la segunda recibe 409.
-- [ ] CA4 (recargar): recargar la página retoma el mismo hilo, con su conversación, su tarjeta (W4) o su botón «Continuar».
+- [x] CA4 (recargar): recargar la página retoma el mismo hilo, con su conversación, su tarjeta (W4) o su botón «Continuar».
   - Un hilo empezado en la terminal se abre en la web.
-- [ ] CA5 (un solo camino): `runTurn`, `resumeTurn` y `continueTurn` usan `streamTurn`.
+- [x] CA5 (un solo camino): `runTurn`, `resumeTurn` y `continueTurn` usan `streamTurn`.
   - Todos los tests de las fases 2 a 8 pasan sin cambios de comportamiento.
   - La terminal funciona igual (se prueba a mano).
-- [ ] CA6 (qué se transmite): con modelos falsos que sí emiten tokens en el router y en la memoria, esos tokens **no** llegan como eventos `token`. Los mensajes que arma el código llegan como `message`, sin tokens.
-- [ ] CA7 (seguridad), probado sobre las rutas:
+- [x] CA6 (qué se transmite): con modelos falsos que sí emiten tokens en el router y en la memoria, esos tokens **no** llegan como eventos `token`. Los mensajes que arma el código llegan como `message`, sin tokens.
+- [x] CA7 (seguridad), probado sobre las rutas:
   - una ruta que cambia algo responde 415 sin `Content-Type: application/json` y 403 con un `Origin` ajeno;
   - un id de hilo o una decisión inválida da 400;
   - un segundo turno en curso sobre el mismo hilo da 409;
   - un error de la base no muestra la cadena de conexión;
   - `npm run web` escucha solo en `127.0.0.1`.
-- [ ] CA8 (corte): con un modelo falso lento, cortar el pedido en medio del turno deja el hilo a medias. «Continuar» lo termina, con un solo mensaje de la persona y una sola respuesta.
-- [ ] CA9 (medición): se registra en esta spec, con Haiku:
+- [x] CA8 (corte): con un modelo falso lento, cortar el pedido en medio del turno deja el hilo a medias. «Continuar» lo termina, con un solo mensaje de la persona y una sola respuesta.
+- [x] CA9 (medición): se registra en esta spec, con Haiku:
   - el tiempo hasta el primer token y el tiempo total de W1, en la web y en la terminal;
   - la diferencia de costo entre `invoke` y `stream` para el mismo pedido (se espera ninguna: son los mismos tokens).
-- [ ] CA10: estos comandos pasan:
+- [x] CA10: estos comandos pasan:
   - `npm test`;
   - `npm run typecheck` (raíz y `web/`);
   - `npm run web:build`;
-  - `npm run db:reset`, dos veces seguidas.
+  - ~~`npm run db:reset`, dos veces seguidas~~: esta fase no cambió la base; se dejó de lado para no borrar los hilos y las memorias reales (ver «Decisiones tomadas durante la fase»).
 
   Además:
   - `specs/mapa-del-grafo.md` dice que el grafo no cambió y suma el mapa de los eventos;
@@ -342,7 +342,7 @@ flowchart TD
 ```
 
 ## Tareas
-Una tarea = un commit en la rama `dev/fase-09`.
+Una tarea = un commit en la rama `dev/fase-09` (T4 a T6 quedaron en un solo commit: ver «Decisiones tomadas durante la fase»).
 
 1. **T1:** esta spec aprobada. Escenarios W1 a W5 congelados en `evals/web-cases.ts`. Andamiaje de `web/` (Next 16, Tailwind v4 y shadcn/ui) con una ruta de prueba que lista los hilos con el agente real, para confirmar lo que el diseño deja «a confirmar».
 2. **T2:** `streamTurn` y los eventos (`events.ts`), y `runTurn`, `resumeTurn` y `continueTurn` sobre `streamTurn`. Tests con modelos falsos que transmiten tokens (CA1, CA2, CA5 y CA6 sin modelo real).
@@ -378,6 +378,22 @@ Una tarea = un commit en la rama `dev/fase-09`.
 - **Las pruebas de punta a punta limpian lo suyo, sin `db:reset`** (la spec preveía resetear la base después). Usan hilos `e2e-…` y, al terminar, borran los turnos que crearon (por el registro de acciones de esos hilos), el registro y los hilos. Así no se pierden los hilos ni las memorias reales. Un sexto escenario, fuera de los congelados, prueba el corte en el navegador: recargar a mitad de una respuesta deja el turno a medias y «Continuar» lo termina. Las pruebas fallan ante cualquier error de la página, y así apareció uno.
 - **«hace 5 min» se calcula en el navegador.** En dos de tres corridas, React avisó que el HTML del servidor no coincidía con el del navegador: la barra de hilos calculaba el tiempo relativo en los dos lados, y a veces cambiaba el minuto en el medio. Ahora se calcula recién en el navegador (y se actualiza cada minuto).
 - **Una acción aprobada después de editarla queda como `edited` en el registro** (fase 5), no como `approved`: W3 lo comprueba así.
+- **CA10 sin `db:reset`.** La spec pedía correrlo dos veces al cerrar, como en las fases anteriores, pero esta fase no cambió la base (ni tablas, ni roles, ni el esquema `langgraph`) y `db:reset` borra los hilos y las memorias reales del negocio, entre ellas la preferencia de formato del stock que se acababa de anotar. Las pruebas de esta fase limpian lo que escriben.
+
+## Medición (CA9)
+Haiku 5.5 en todos los roles, el mismo día y con los mismos datos. Se corrió el mismo pedido con `graph.invoke` (el camino de antes) y con `streamRunTurn` (el de ahora, el de la terminal y la web), tres veces el corto y dos el largo.
+
+| Pedido | Camino | Herramienta visible | Primer texto | Total | Tokens (entrada → salida) | Costo |
+| --- | --- | --- | --- | --- | --- | --- |
+| «¿Cuántos turnos hay mañana?» | `invoke` | — | — | 2,8 a 3,3 s | 10.625 → 285 a 289 | US$ 0,0012 |
+| «¿Cuántos turnos hay mañana?» | `stream` | 2,0 a 2,2 s | 2,6 a 2,8 s | 2,8 a 3,0 s | 10.610 a 10.625 → 283 a 302 | US$ 0,0012 |
+| «Listame todos los turnos de mañana con la hora, el cliente, el servicio y el barbero.» | `invoke` | — | — | 5,0 a 5,5 s | 10.698 → 1.035 a 1.040 | US$ 0,0016 |
+| el mismo | `stream` | 1,9 a 2,3 s | 2,8 a 3,3 s | 4,7 a 5,2 s | 10.675 a 10.682 → 1.016 a 1.061 | US$ 0,0016 |
+
+- **El costo no cambia**: los tokens son los mismos (las diferencias son de la respuesta, que varía de una corrida a otra).
+- **El tiempo total tampoco**: transmitir no hace más lento el turno.
+- **Lo que cambia es cuándo se ve algo.** Con una respuesta corta de Haiku (~40 tokens, que llegan en 6 o 7 fragmentos), el texto aparece casi al final; lo que se adelanta es la herramienta, visible un segundo antes. Con una respuesta larga (~1.000 tokens, en ~90 fragmentos), el texto empieza a leerse a los 3 s y termina a los 5: un 40 % antes. En la terminal, que sigue mostrando la respuesta al final, el tiempo hasta ver algo es el total.
+- En el navegador (W1, tres corridas), la herramienta se vio siempre antes que el texto y el texto creció en varios pasos antes de terminar.
 
 ## Qué aprendí
 - **Los tres modos de streaming responden tres preguntas distintas.** `messages`: qué está escribiendo un modelo ahora (los tokens, con el nodo que los produce en los metadatos). `updates`: qué terminó de hacer cada nodo (la ruta, una herramienta pedida, su resultado, la pausa). `values`: cómo quedó el estado después de cada paso; el último es el resultado del turno. Con `subgraphs: true` llegan también los de adentro de cada subgrafo, con su namespace (`query_graph:…|agent:…`). Juntos alcanzan para dibujar todo el turno sin preguntarle nada más al grafo.
