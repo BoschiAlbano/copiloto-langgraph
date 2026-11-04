@@ -1,4 +1,5 @@
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
+import { PostgresStore } from "@langchain/langgraph-checkpoint-postgres/store";
 import pg from "pg";
 import { loadEnvFile } from "../config/env.js";
 import { CHECKPOINT_SCHEMA } from "../graph/checkpointing.js";
@@ -6,7 +7,8 @@ import { ensureRoleLogin } from "./role-login.js";
 
 // Prepara dónde LangGraph guarda los hilos, con el dueño de la base (DATABASE_URL_WRITE):
 //   1. crea el rol copilot_checkpointer (sin login todavía) y el esquema `langgraph`;
-//   2. corre setup() del paquete: crea las tablas y aplica sus migraciones internas;
+//   2. corre setup() del paquete: crea las tablas y aplica sus migraciones internas (las del checkpointer y, desde la
+//      fase 8, las del Store de memoria de largo plazo, en el mismo esquema);
 //   3. da al rol solo lectura y escritura de datos sobre esas tablas, y se lo quita a todos los demás;
 //   4. le asigna el login y la contraseña de DATABASE_URL_CHECKPOINTS.
 // Es idempotente. Se vuelve a correr al actualizar @langchain/langgraph-checkpoint-postgres.
@@ -42,6 +44,14 @@ try {
   await saver.setup();
 } finally {
   await saver.end();
+}
+
+// El Store (fase 8): sus tablas las crea el dueño; la aplicación lo abre con `ensureTables: false`.
+const store = new PostgresStore({ connectionOptions: adminUrl, schema: CHECKPOINT_SCHEMA, ensureTables: false });
+try {
+  await store.setup();
+} finally {
+  await store.stop();
 }
 
 const grants = new pg.Client({ connectionString: adminUrl });

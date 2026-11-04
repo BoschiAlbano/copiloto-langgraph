@@ -9,7 +9,8 @@ const readUrl = process.env.DATABASE_URL_READ;
 const adminUrl = process.env.DATABASE_URL_WRITE;
 
 const NO_PERMISSION = "42501";
-const TABLES = ["checkpoints", "checkpoint_blobs", "checkpoint_writes", "checkpoint_migrations"];
+// Desde la fase 8 el esquema también tiene las tablas del Store (memoria de largo plazo), con los mismos permisos.
+const TABLES = ["checkpoints", "checkpoint_blobs", "checkpoint_writes", "checkpoint_migrations", "store", "store_migrations"];
 
 describe.skipIf(!checkpointsUrl)("rol copilot_checkpointer", () => {
   const client = new pg.Client({ connectionString: checkpointsUrl });
