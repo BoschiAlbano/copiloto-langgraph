@@ -6,6 +6,7 @@ import type { Intent } from "./intents.js";
 import { AGENT_RECURSION_LIMIT } from "./limits.js";
 import type { Plan } from "./plan.js";
 import type { Section } from "./report/state.js";
+import { toUiEvents, type StreamChunk, type UiEvent } from "../web/events.js";
 import { parseThreadId } from "./thread-id.js";
 import { getStatus } from "./threads.js";
 import { agentSteps, summarizeTurn, type AgentStep, type TurnSummary } from "./usage.js";
@@ -45,26 +46,65 @@ export function turnReply(messages: BaseMessage[]): string {
     .join("\n\n");
 }
 
+/** Lo que se le pasa a `graph.stream` en cada turno: los tres modos, también dentro de los subgrafos (fase 9). */
+const STREAM_MODES = ["values", "updates", "messages"] as const;
+
 /**
+ * Corre el grafo con `graph.stream` y produce los eventos de la interfaz a medida que pasan (fase 9). El último evento
+ * es `done`, con el mismo `TurnResult` que antes devolvía `invoke`: así la terminal y la web usan un solo camino.
+ *
  * @param already cuántos mensajes del hilo ya existían (y no son de esta llamada) cuando se invoca. El resumen
  *   del turno cuenta solo lo que se agregó después: así, al decidir o continuar, no se vuelven a listar las
  *   herramientas que se usaron antes de la pausa.
+ * @param signal corta el turno (por ejemplo, si se cierra la página). El hilo queda a medias, como tras una falla.
  */
-async function invokeTurn(agent: TurnAgent, threadId: string, input: TurnInput, already: number): Promise<TurnResult> {
+async function* streamInvoke(agent: TurnAgent, threadId: string, input: TurnInput, already: number, signal?: AbortSignal): AsyncGenerator<UiEvent> {
   const tracker = new UsageTracker();
   // El tipo de `Command` del grafo compilado exige los nombres de nodo exactos; acá solo se usa `resume`.
-  const state = await agent.graph.invoke(input as never, {
+  const stream = await agent.graph.stream(input as never, {
     configurable: { thread_id: parseThreadId(threadId) },
     recursionLimit: AGENT_RECURSION_LIMIT,
     callbacks: [tracker],
+    streamMode: [...STREAM_MODES],
+    subgraphs: true,
+    ...(signal && { signal }),
   });
-  // Cuando el grafo se pausa, `invoke` devuelve el estado hasta ahí más `__interrupt__` con lo que pidió `interrupt`.
-  // La pausa ocurre dentro del subgrafo de acciones, y `invoke` la informa igual en el grafo principal.
-  const interrupts = (state as { __interrupt__?: { value: unknown }[] }).__interrupt__;
-  const awaiting = interrupts?.map((i) => i.value as ApprovalRequest).find((v) => v?.kind === "approve_action");
+  let state: Partial<StateOf> = {};
+  let awaiting: ApprovalRequest | undefined;
+  for await (const chunk of stream as AsyncIterable<StreamChunk>) {
+    const [namespace, mode, data] = chunk;
+    // El estado del grafo principal después de cada paso: el último es el final (o el de la pausa).
+    // Al pausarse, el modo values manda además un dato que es solo `{ __interrupt__ }`: ese no es el estado.
+    if (mode === "values" && namespace.length === 0 && !(data as object && "__interrupt__" in (data as object))) state = data as Partial<StateOf>;
+    for (const event of toUiEvents(chunk)) {
+      if (event.type === "approval") awaiting = event.request;
+      yield event;
+    }
+  }
+  yield { type: "done", result: await turnResult(agent, threadId, state, awaiting, tracker, already) };
+}
+
+type StateOf = {
+  messages: BaseMessage[];
+  intent: Intent;
+  intentReason: string;
+  plan: Plan;
+  report: { label: string; notice?: string; sections?: Record<Section, "ok" | "error" | "missing"> };
+  businessContext: unknown[];
+};
+
+async function turnResult(
+  agent: TurnAgent,
+  threadId: string,
+  state: Partial<StateOf>,
+  awaiting: ApprovalRequest | undefined,
+  tracker: UsageTracker,
+  already: number,
+): Promise<TurnResult> {
   // Durante una pausa, los mensajes del subgrafo todavía no volvieron al grafo principal: se leen del hilo guardado.
-  const messages: BaseMessage[] = awaiting ? (await getStatus(agent.graph, threadId)).messages : state.messages;
-  const plan: Plan | undefined = state.plan;
+  // La pausa ocurre dentro del subgrafo de acciones, y `stream` la informa igual en el grafo principal.
+  const messages: BaseMessage[] = awaiting ? (await getStatus(agent.graph, threadId)).messages : (state.messages ?? []);
+  const plan = state.plan;
   const report = state.report;
   return {
     // El texto del modelo que acompaña a una acción propuesta no se muestra como respuesta: manda la tarjeta.
@@ -83,6 +123,12 @@ async function invokeTurn(agent: TurnAgent, threadId: string, input: TurnInput, 
       ? { report: { label: report.label, ...(report.notice && { notice: report.notice }), sections: report.sections } }
       : {}),
   };
+}
+
+/** Consume los eventos de un turno y devuelve su resultado (lo que necesita la terminal). */
+async function collect(events: AsyncIterable<UiEvent>): Promise<TurnResult> {
+  for await (const event of events) if (event.type === "done") return event.result;
+  throw new Error("El turno terminó sin resultado.");
 }
 
 /** El hilo quedó a medias por una falla: hay que reanudarlo con `continueTurn` antes de seguir conversando. */
@@ -113,23 +159,31 @@ export class ThreadAwaitingApprovalError extends ThreadPendingError {
  * Se manda solo el mensaje nuevo: el historial lo pone el checkpointer a partir del `threadId`.
  * Si el modelo pide una acción, el turno termina pausado y el resultado trae `awaiting`.
  */
-export async function runTurn(agent: TurnAgent, threadId: string, input: string): Promise<TurnResult> {
+export async function* streamRunTurn(agent: TurnAgent, threadId: string, input: string, signal?: AbortSignal): AsyncGenerator<UiEvent> {
   // Detrás de una llamada a herramienta sin respuesta, un mensaje nuevo rompe la API de Claude.
   const status = await getStatus(agent.graph, threadId);
   if (status.awaiting) throw new ThreadAwaitingApprovalError(threadId, status.awaiting);
   if (status.pending) throw new ThreadPendingError(threadId, status.next);
   // El mensaje de la persona es el primero de este turno: lo que ya había más ese mensaje no cuenta como "nuevo".
-  return invokeTurn(agent, threadId, { messages: [new HumanMessage(input)] }, status.messages.length + 1);
+  yield* streamInvoke(agent, threadId, { messages: [new HumanMessage(input)] }, status.messages.length + 1, signal);
+}
+
+export function runTurn(agent: TurnAgent, threadId: string, input: string): Promise<TurnResult> {
+  return collect(streamRunTurn(agent, threadId, input));
 }
 
 /**
  * Reanuda un turno que quedó a medias por una falla, desde su último checkpoint. No repite el mensaje de la
  * persona: `invoke(null)` significa "seguí donde quedaste". El uso informado es solo el de esta reanudación.
  */
-export async function continueTurn(agent: TurnAgent, threadId: string): Promise<TurnResult> {
+export async function* streamContinueTurn(agent: TurnAgent, threadId: string, signal?: AbortSignal): AsyncGenerator<UiEvent> {
   const status = await getStatus(agent.graph, threadId);
   if (status.awaiting) throw new ThreadAwaitingApprovalError(threadId, status.awaiting);
-  return invokeTurn(agent, threadId, null, status.messages.length);
+  yield* streamInvoke(agent, threadId, null, status.messages.length, signal);
+}
+
+export function continueTurn(agent: TurnAgent, threadId: string): Promise<TurnResult> {
+  return collect(streamContinueTurn(agent, threadId));
 }
 
 /** Se intentó decidir sobre un hilo que no espera ninguna decisión. */
@@ -144,8 +198,12 @@ export class NothingToDecideError extends Error {
  * Entrega la decisión de la persona (aprobar, rechazar o editar) a un hilo pausado y lo reanuda. Una decisión
  * mal formada no ejecuta nada: el grafo vuelve a preguntar y el resultado trae `awaiting` con el motivo.
  */
-export async function resumeTurn(agent: TurnAgent, threadId: string, decision: HumanDecision): Promise<TurnResult> {
+export async function* streamResumeTurn(agent: TurnAgent, threadId: string, decision: HumanDecision, signal?: AbortSignal): AsyncGenerator<UiEvent> {
   const status = await getStatus(agent.graph, threadId);
   if (!status.awaiting) throw new NothingToDecideError(threadId);
-  return invokeTurn(agent, threadId, new Command({ resume: decision }), status.messages.length);
+  yield* streamInvoke(agent, threadId, new Command({ resume: decision }), status.messages.length, signal);
+}
+
+export function resumeTurn(agent: TurnAgent, threadId: string, decision: HumanDecision): Promise<TurnResult> {
+  return collect(streamResumeTurn(agent, threadId, decision));
 }

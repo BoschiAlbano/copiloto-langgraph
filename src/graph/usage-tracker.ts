@@ -56,8 +56,15 @@ export class UsageTracker extends BaseCallbackHandler {
   private readonly byRun = new Map<string, Map<string, ModelUsage>>();
   /** Qué corrida hizo cada llamada en curso: los metadatos llegan al empezar, los tokens al terminar. */
   private readonly runOfCall = new Map<string, string>();
+  /**
+   * El modelo de cada llamada en curso, según lo que se pidió al empezar. Con streaming (fase 9), la respuesta de
+   * Claude llega en fragmentos y la suma no siempre trae el nombre del modelo: este es el respaldo.
+   */
+  private readonly modelOfCall = new Map<string, string>();
 
-  handleChatModelStart(_llm: unknown, _messages: unknown, runId: string, _parentRunId?: string, _extra?: unknown, _tags?: string[], metadata?: Record<string, unknown>) {
+  handleChatModelStart(_llm: unknown, _messages: unknown, runId: string, _parentRunId?: string, extra?: Record<string, unknown>, _tags?: string[], metadata?: Record<string, unknown>) {
+    const requested = metadata?.ls_model_name ?? (extra?.invocation_params as { model?: unknown } | undefined)?.model;
+    if (typeof requested === "string" && requested) this.modelOfCall.set(runId, requested);
     const key = runKeyOf(metadata);
     this.runOfCall.set(runId, key);
     if (!this.byRun.has(key)) this.byRun.set(key, new Map());
@@ -66,7 +73,9 @@ export class UsageTracker extends BaseCallbackHandler {
   handleLLMEnd(output: LLMResult, runId?: string) {
     const message = (output.generations?.[0]?.[0] as { message?: BaseMessage } | undefined)?.message;
     const ai = message && AIMessage.isInstance(message) ? message : undefined;
-    const model = String(ai?.response_metadata?.model ?? ai?.response_metadata?.model_name ?? output.llmOutput?.model ?? "desconocido");
+    const requested = runId ? this.modelOfCall.get(runId) : undefined;
+    if (runId) this.modelOfCall.delete(runId);
+    const model = String(ai?.response_metadata?.model ?? ai?.response_metadata?.model_name ?? output.llmOutput?.model ?? requested ?? "desconocido");
     const input = ai?.usage_metadata?.input_tokens ?? 0;
     const outputTokens = ai?.usage_metadata?.output_tokens ?? 0;
 

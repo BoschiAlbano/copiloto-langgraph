@@ -30,7 +30,7 @@ Qué se necesita de tu parte:
   - un turno a medias, con un botón «Continuar» (como `/continuar` en la terminal).
 
 **La respuesta en vivo**
-- R4: **Texto token por token** (modo `messages` de LangGraph). Solo se transmite el texto de los nodos que le contestan a la persona: los agentes de consultas y de acciones, la charla, la aclaración y la lectura del reporte. Los nodos con salida estructurada (router, memoria, período del reporte) no se transmiten: su salida no es texto para la persona.
+- R4: **Texto token por token** (modo `messages` de LangGraph). Solo se transmite el texto de los nodos que le contestan a la persona: los agentes de consultas y de acciones, la charla y la aclaración. Los nodos con salida estructurada (router, memoria, período del reporte) no se transmiten: su salida no es texto para la persona. **Corrección en T2:** la «Lectura» del reporte tampoco. El código la descarta si cita una cifra que no está en los datos (fase 6), y transmitida se vería un texto que después desaparece. Del reporte se ven en vivo sus secciones, y el texto llega entero.
 - R5: **Pasos visibles mientras ocurren** (modo `updates`, con `subgraphs: true`):
   - las partes del pedido (el plan del router), apenas el router termina;
   - qué agente está trabajando;
@@ -71,6 +71,7 @@ Qué se necesita de tu parte:
   - `token`;
   - `message`: un mensaje terminado;
   - `tool_start` y `tool_end`;
+  - `action_result`: el resultado de una acción, con el texto que arma el código (sumado en T2);
   - `report_section`;
   - `approval`: la tarjeta;
   - `done`: el `TurnResult` completo;
@@ -332,8 +333,8 @@ En «Respondiendo» y en «Esperando» la entrada de texto está bloqueada. En �
 ```mermaid
 flowchart TD
     M["fragmento del modo messages"] --> N{"¿de qué nodo?"}
-    N -- "agente de consultas o acciones,<br/>charla, aclaración, lectura del reporte" --> T["token"]
-    N -- "router, memoria, período del reporte<br/>(salida estructurada)" --> X["se descarta"]
+    N -- "agente de consultas o acciones,<br/>charla, aclaración" --> T["token"]
+    N -- "router, memoria, período del reporte<br/>(salida estructurada) y la «Lectura»<br/>(el código la valida antes)" --> X["se descarta"]
     U["mensaje en el modo updates"] --> K{"¿cómo es?"}
     K -- "IA con tool_calls" --> TS["tool_start + su texto como paso"]
     K -- "ToolMessage" --> TE["tool_end (sin el contenido)"]
@@ -356,3 +357,13 @@ Una tarea = un commit en la rama `dev/fase-09`.
 - **La web compila `../src` con webpack, no con Turbopack** (T1). Turbopack, el compilador por defecto de Next 16, no resuelve los imports `.js` que apuntan a archivos `.ts` fuera de `web/`: el resto del proyecto usa esa forma, que es la de NodeNext. Webpack sí los resuelve, con dos opciones de Next: `experimental.externalDir`, que deja compilar archivos de fuera de `web/`, y `experimental.extensionAlias`, que traduce `.js` a `.ts`. Por eso los scripts de `web/` usan `--webpack`. La alternativa era compilar `src/` a JavaScript antes de levantar la web: es un paso más en cada cambio, y la terminal no lo necesita.
 - **Los prompts se leen con `readPrompt`** (`src/graph/prompts/read.ts`), en vez de `readFileSync(new URL(…))` en cada nodo. Webpack convierte `new URL("x.md", import.meta.url)` en un archivo publicado (`/_next/static/media/…`). En el servidor eso se apaga (`module.parser.javascript.url: false`) y la URL queda apuntando al archivo real de `src/`. Aun así, el objeto `URL` llega de otro contexto y `readFileSync` no lo acepta, así que `readPrompt` usa su texto (`href`). La terminal y los tests no notan la diferencia.
 - **Confirmado:** `pg`, Prisma, el checkpointer y el Store de Postgres funcionan como paquetes externos del servidor. Un turno real dentro de Next (consulta de stock) usó el agente, la base y la memoria de la fase 8, y contestó «Cera mate 31 U/S». El agente se crea una vez por proceso y lee el `.env` de la raíz.
+- **Cómo llegan los datos de `graph.stream`** (T2, LangGraph 1.5.3, modos `values`, `updates` y `messages` con `subgraphs: true`):
+  - cada dato es `[namespace, modo, dato]`;
+  - los fragmentos de texto traen el mismo id que el mensaje final, así que el mensaje terminado reemplaza al borrador;
+  - la pausa de aprobación llega dos veces (desde el subgrafo y desde la raíz) y se toma la de la raíz;
+  - un subgrafo devuelve todos sus mensajes juntos al grafo principal cuando termina, y esos no se repiten;
+  - al pausarse, el modo `values` manda además un dato que es solo `{ __interrupt__ }`: el estado es el anterior;
+  - un nodo del grafo principal transmite con su propio tramo de namespace (`chat:…`).
+- **Con streaming, el agente guarda `AIMessageChunk`.** Cuando alguien escucha los tokens, LangChain le pide al modelo que transmita, y lo que el nodo recibe y guarda es la suma de los fragmentos (`AIMessageChunk`), no un `AIMessage`. Para el resto del código es lo mismo (`AIMessage.isInstance` lo acepta) y al volver al grafo principal se convierte en `AIMessage`. Toda la suite pasó sin cambios.
+- **Un evento más, `action_result`:** el resultado de una acción aprobada o rechazada, con el texto del código, igual que `[acción]` en la terminal. Las acciones propuestas no son `tool_start`: se ven en la tarjeta.
+- **Con streaming, la respuesta de Claude no trae el nombre del modelo** (T2, con el modelo real): el uso salía como «desconocido» y el costo, vacío. `UsageTracker` ahora toma como respaldo el modelo que se pidió al empezar la llamada (`ls_model_name` en los metadatos). La consulta «¿Cuántos turnos hay mañana?» costó US$ 0,0012 con streaming, lo mismo que en el bench de la fase 8 (US$ 0,0013): los tokens son los mismos.

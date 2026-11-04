@@ -51,6 +51,18 @@ describe("UsageTracker por corrida", () => {
     expect(totalUsage(t.usage())).toEqual(totalUsage(mergeUsage(...t.runs().map((r) => r.usage))));
   });
 
+  it("con streaming (fase 9) la respuesta puede no traer el modelo: se usa el que se pidió al empezar", () => {
+    const t = new UsageTracker();
+    t.handleChatModelStart({}, [], "s", undefined, undefined, undefined, { langgraph_checkpoint_ns: "chat:1", ls_model_name: "claude-haiku-5-5" });
+    t.handleLLMEnd({ generations: [[{ text: "", message: new AIMessage({ content: "hola", usage_metadata: { input_tokens: 50, output_tokens: 5, total_tokens: 55 } }) }]] } as never, "s");
+    t.handleChatModelStart({}, [], "u", undefined, { invocation_params: { model: "claude-sonnet-5-5" } }, undefined, { langgraph_checkpoint_ns: "chat:1" });
+    t.handleLLMEnd({ generations: [[{ text: "", message: new AIMessage({ content: "chau", usage_metadata: { input_tokens: 10, output_tokens: 1, total_tokens: 11 } }) }]] } as never, "u");
+    expect(t.usage()).toEqual([
+      { model: "claude-haiku-5-5", calls: 1, inputTokens: 50, outputTokens: 5 },
+      { model: "claude-sonnet-5-5", calls: 1, inputTokens: 10, outputTokens: 1 },
+    ]);
+  });
+
   it("una llamada sin metadatos (fuera de un grafo) cuenta igual, como corrida desconocida", () => {
     const t = new UsageTracker();
     t.handleLLMEnd(end("claude-haiku-5-5", 10, 1));
