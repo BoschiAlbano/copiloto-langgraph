@@ -17,15 +17,16 @@ const shape = async (graph: { getGraphAsync(): Promise<{ nodes: Record<string, u
 const model = scriptedModel([]).model;
 
 describe("forma de los grafos (fases 7 y 8)", () => {
-  it("el principal: 8 nodos y 14 conexiones; empieza en load_memory y el supervisor sale por Command hacia los 5 agentes y END", async () => {
+  it("el principal: 9 nodos y 16 conexiones; empieza en load_memory y el supervisor sale por Command hacia los 6 agentes y END", async () => {
     const { nodes, edges } = await shape(buildTestGraph({ model, tools: [] }));
-    expect(nodes).toEqual(["action_graph", "chat", "clarify", "load_memory", "query_graph", "report_graph", "router", "supervisor"]);
+    expect(nodes).toEqual(["action_graph", "chat", "clarify", "load_memory", "memory", "query_graph", "report_graph", "router", "supervisor"]);
     expect(edges).toEqual([
       "__start__ --> load_memory",
       "action_graph --> supervisor",
       "chat --> supervisor",
       "clarify --> supervisor",
       "load_memory --> router",
+      "memory --> supervisor",
       "query_graph --> supervisor",
       "report_graph --> supervisor",
       "router --> supervisor",
@@ -33,6 +34,7 @@ describe("forma de los grafos (fases 7 y 8)", () => {
       "supervisor -?-> action_graph",
       "supervisor -?-> chat",
       "supervisor -?-> clarify",
+      "supervisor -?-> memory",
       "supervisor -?-> query_graph",
       "supervisor -?-> report_graph",
     ]);

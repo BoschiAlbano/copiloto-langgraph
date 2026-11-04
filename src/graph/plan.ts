@@ -51,7 +51,8 @@ const pending = (items: { intent: Intent; request: string }[]): Task[] =>
  *  - una tarea `unclear` anula las demás: se pide aclaración antes de hacer nada;
  *  - la charla combinada con otras tareas se descarta;
  *  - una sola acción por mensaje (la primera); si había otra, el plan lleva un aviso;
- *  - la acción va primero y el resto sigue en el orden pedido (una consulta del mismo mensaje tiene que ver el cambio);
+ *  - la memoria va primero (fase 8: lo que se anota ya vale para las demás tareas del turno), después la acción, y el
+ *    resto sigue en el orden pedido (una consulta del mismo mensaje tiene que ver el cambio);
  *  - las consultas seguidas se unen en una: un mismo agente puede contestar varias preguntas.
  */
 export function normalizePlan(output: unknown, lastMessage: string): NormalizedPlan {
@@ -67,7 +68,8 @@ export function normalizePlan(output: unknown, lastMessage: string): NormalizedP
   if (work.length === 0) return single("chat", lastMessage);
 
   const actions = work.filter((t) => t.intent === "action");
-  const ordered = [...actions.slice(0, 1), ...work.filter((t) => t.intent !== "action")];
+  const memories = work.filter((t) => t.intent === "memory");
+  const ordered = [...memories, ...actions.slice(0, 1), ...work.filter((t) => t.intent !== "action" && t.intent !== "memory")];
   const merged: { intent: Intent; request: string }[] = [];
   for (const t of ordered) {
     const previous = merged.at(-1);
@@ -134,6 +136,7 @@ export const AGENT_NODES = {
   report: "report_graph",
   chat: "chat",
   unclear: "clarify",
+  memory: "memory",
 } as const satisfies Record<Intent, string>;
 export type AgentNode = (typeof AGENT_NODES)[Intent];
 export const AGENT_NODE_NAMES = Object.values(AGENT_NODES) as [AgentNode, ...AgentNode[]];

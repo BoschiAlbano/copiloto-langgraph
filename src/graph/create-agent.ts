@@ -6,7 +6,7 @@ import { makeActionRunner } from "./action-runner.js";
 import { createMemoryStore, MEMORY_NAMESPACE } from "../memory/store.js";
 import { createCheckpointing } from "./checkpointing.js";
 import { buildGraph } from "./index.js";
-import { claude, makeClarifyModel, makeReportModel, makeReportPlanModel, makeRouterModel } from "./models.js";
+import { claude, makeClarifyModel, makeMemoryModel, makeReportModel, makeReportPlanModel, makeRouterModel } from "./models.js";
 import { runSection } from "./report/sections.js";
 
 export type Agent = ReturnType<typeof createAgent>;
@@ -40,11 +40,14 @@ export function createAgent(env: Env, options: { memoryNamespace?: string[] } = 
       clarify: makeClarifyModel(env),
       reportPlan: makeReportPlanModel(env),
       report: makeReportModel(env),
+      memory: makeMemoryModel(env),
     },
     tools,
     actions: makeActionRunner(db, actionsDb),
     // Las secciones de un reporte solo LEEN: usan el mismo cliente de solo lectura que las herramientas.
     reportSections: (section, reportId, range) => runSection(section, reportId, range, db),
+    // Para no guardar memorias sobre clientes: sus nombres, con el rol de lectura.
+    clientNames: async () => (await db.client.findMany({ select: { name: true } })).map((c) => c.name),
     checkpointer: checkpointing.saver,
     store,
     memoryNamespace: options.memoryNamespace,

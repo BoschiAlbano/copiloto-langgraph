@@ -8,6 +8,7 @@ import type { AgentModel } from "./nodes/agent.js";
 import { makeChatNode } from "./nodes/chat.js";
 import { makeClarifyNode } from "./nodes/clarify.js";
 import { makeLoadMemoryNode } from "./nodes/load-memory.js";
+import { makeMemoryNode, type MemoryModel } from "./nodes/memory.js";
 import type { PlanModel, SectionRunner } from "./nodes/report.js";
 import { makeRouterNode, type RouterModel } from "./nodes/router.js";
 import { supervise } from "./nodes/supervisor.js";
@@ -30,6 +31,8 @@ export interface BuildGraphOptions {
     reportPlan: PlanModel;
     /** SIN herramientas: escribe la «Lectura» de un reporte a partir de datos ya calculados. */
     report: AgentModel;
+    /** Modelo barato con salida estructurada: decide qué hacer con la memoria (fase 8). Sin él, la memoria no está disponible. */
+    memory?: MemoryModel;
   };
   /** Las herramientas de CONSULTA, para los ToolNode de los agentes de consultas y de acciones. Nunca incluye acciones. */
   tools: StructuredToolInterface[];
@@ -47,23 +50,28 @@ export interface BuildGraphOptions {
   store?: BaseStore;
   /** Namespace de las memorias en el Store (los tests usan uno propio). */
   memoryNamespace?: string[];
+  /** Nombres completos de los clientes: no se guardan memorias sobre clientes (fase 8). */
+  clientNames?: () => Promise<string[]>;
 }
 
 /**
- * Grafo principal (fase 7): un supervisor reparte el plan del router entre agentes especializados.
+ * Grafo principal (fases 7 y 8): un supervisor reparte el plan del router entre agentes especializados, y cada turno
+ * empieza cargando la memoria de largo plazo.
  *
- *  START → router → supervisor ─┬─ query_graph  ─┐   (subgrafo: agent ⇄ tools)
- *            (plan)    ▲        ├─ action_graph ─┤   (subgrafo: aprobación con interrupt)
- *                      │        ├─ report_graph ─┤   (subgrafo: tres secciones en paralelo)
- *                      │        ├─ chat         ─┤
- *                      │        ├─ clarify      ─┤
- *                      │        └─ END           │
- *                      └─────────────────────────┘   cada agente vuelve al supervisor por una arista fija
+ *  START → load_memory → router → supervisor ─┬─ query_graph  ─┐   (subgrafo: agent ⇄ tools)
+ *          (Store →        (plan)    ▲        ├─ action_graph ─┤   (subgrafo: aprobación con interrupt)
+ *       businessContext)             │        ├─ report_graph ─┤   (subgrafo: tres secciones en paralelo)
+ *                                    │        ├─ memory       ─┤   (guardar, listar y borrar en el Store)
+ *                                    │        ├─ chat         ─┤
+ *                                    │        ├─ clarify      ─┤
+ *                                    │        └─ END           │
+ *                                    └─────────────────────────┘   cada agente vuelve al supervisor por una arista fija
  *
- * Los tres subgrafos se agregan como nodos: comparten con este grafo los campos del mismo nombre (`messages`, `plan`
- * y, el de reportes, `report`) y guardan sus pasos con el mismo checkpointer, en su propio espacio de nombres.
+ * Los tres subgrafos se agregan como nodos: comparten con este grafo los campos del mismo nombre (`messages`, `plan`,
+ * `businessContext` y, el de reportes, `report`) y guardan sus pasos con el mismo checkpointer, en su propio espacio de
+ * nombres. El Store no depende del hilo: lo que `memory` anota en uno, `load_memory` lo lee en todos.
  */
-export function buildGraph({ models, tools, actions, reportSections, now, warn, checkpointer, store, memoryNamespace }: BuildGraphOptions) {
+export function buildGraph({ models, tools, actions, reportSections, now, warn, checkpointer, store, memoryNamespace, clientNames }: BuildGraphOptions) {
   return (
     new StateGraph(AgentState)
       // Fase 8: cada turno empieza leyendo las memorias del negocio del Store.
@@ -76,6 +84,7 @@ export function buildGraph({ models, tools, actions, reportSections, now, warn, 
       .addNode("report_graph", buildReportGraph({ plan: models.reportPlan, reading: models.report, sections: reportSections, now, warn }))
       .addNode("chat", makeChatNode(models.chat))
       .addNode("clarify", makeClarifyNode(models.clarify))
+      .addNode("memory", makeMemoryNode(models.memory, { namespace: memoryNamespace, clientNames, now, warn }))
       .addEdge(START, "load_memory")
       .addEdge("load_memory", "router")
       .addEdge("router", "supervisor")
@@ -84,6 +93,7 @@ export function buildGraph({ models, tools, actions, reportSections, now, warn, 
       .addEdge("report_graph", "supervisor")
       .addEdge("chat", "supervisor")
       .addEdge("clarify", "supervisor")
+      .addEdge("memory", "supervisor")
       // El Store se da al compilar, como el checkpointer: LangGraph se lo pasa a cada nodo en `config.store`.
       .compile({ checkpointer, store })
   );

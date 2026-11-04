@@ -114,6 +114,7 @@ describe("cada intención llega a su agente (CA5), pasando por el supervisor (fa
     action: ["action_graph/action_agent"],
     report: ["report_graph/plan_report", "report_graph/report_appointments", "report_graph/report_sales", "report_graph/report_stock", "report_graph/compose_report"],
     unclear: [],
+    memory: [], // fase 8: un nodo simple (sin Store en este test responde que la memoria no está disponible)
   };
 
   for (const intent of INTENTS) {
@@ -205,8 +206,8 @@ describe("fallas del router (CA7)", () => {
 });
 
 describe("AGENT_NODES (antes routeByIntent)", () => {
-  it("cubre las cinco intenciones", () => {
-    expect(INTENTS.map((i) => AGENT_NODES[i])).toEqual(["query_graph", "action_graph", "report_graph", "chat", "clarify"]);
+  it("cubre las seis intenciones", () => {
+    expect(INTENTS.map((i) => AGENT_NODES[i])).toEqual(["query_graph", "action_graph", "report_graph", "chat", "clarify", "memory"]);
   });
 });
 

@@ -7,8 +7,9 @@ import { z } from "zod";
  * - report: pide un resumen que junta varias fuentes (fase 6)
  * - chat: saludo, agradecimiento o charla sobre el propio copiloto
  * - unclear: no se entiende qué se pide
+ * - memory: pide recordar, listar u olvidar una regla o preferencia del negocio (fase 8)
  */
-export const INTENTS = ["query", "action", "report", "chat", "unclear"] as const;
+export const INTENTS = ["query", "action", "report", "chat", "unclear", "memory"] as const;
 export type Intent = (typeof INTENTS)[number];
 
 /** Máximo de tareas en que el router puede partir un mensaje (fase 7). */

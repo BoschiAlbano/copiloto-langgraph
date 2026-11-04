@@ -104,7 +104,7 @@ describe("nodo router", () => {
 describe("prompt del router", () => {
   const prompt = readFileSync(new URL("../src/graph/prompts/router.md", import.meta.url), "utf8");
 
-  it("define las cinco intenciones", () => {
+  it("define las seis intenciones", () => {
     for (const intent of INTENTS) expect(prompt, intent).toContain(`- ${intent}:`);
   });
 

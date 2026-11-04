@@ -73,6 +73,7 @@ export function buildTestGraph({
   checkpointer,
   store,
   memoryNamespace,
+  memoryModel,
 }: {
   model: AgentModel;
   actionModel?: AgentModel;
@@ -88,6 +89,8 @@ export function buildTestGraph({
   /** Memoria de largo plazo (fase 8). Sin Store, no hay memorias. */
   store?: BaseStore;
   memoryNamespace?: string[];
+  /** El modelo del nodo de memoria (fase 8). Sin él, la memoria no está disponible. */
+  memoryModel?: RouterModel;
 }) {
   return buildGraph({
     models: {
@@ -98,6 +101,7 @@ export function buildTestGraph({
       clarify: model,
       reportPlan,
       report: model,
+      memory: memoryModel,
     },
     tools,
     actions,

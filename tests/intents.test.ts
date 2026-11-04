@@ -4,8 +4,8 @@ import { INTENTS, MAX_TASKS, routerOutputSchema } from "../src/graph/intents.js"
 const plan = (...tasks: { intent: string; request: string }[]) => ({ reason: "motivo", tasks });
 
 describe("routerOutputSchema", () => {
-  it("acepta cada una de las cinco intenciones", () => {
-    expect(INTENTS).toEqual(["query", "action", "report", "chat", "unclear"]);
+  it("acepta cada una de las seis intenciones (memory, desde la fase 8)", () => {
+    expect(INTENTS).toEqual(["query", "action", "report", "chat", "unclear", "memory"]);
     for (const intent of INTENTS) {
       expect(routerOutputSchema.safeParse(plan({ intent, request: "x" })).success, intent).toBe(true);
     }

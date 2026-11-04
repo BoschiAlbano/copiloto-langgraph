@@ -1,6 +1,7 @@
 import { ChatAnthropic } from "@langchain/anthropic";
 import type { Env } from "../config/env.js";
 import { routerOutputSchema } from "./intents.js";
+import { memoryOutputSchema } from "./nodes/memory.js";
 import { planOutputSchema } from "./report/plan.js";
 
 // Sin `temperature`: Haiku 5.5 rechaza ese parámetro ("deprecated for this model").
@@ -16,6 +17,10 @@ export const makeClarifyModel = (env: Env) => claude(env, env.MODEL_ROUTER);
 /** Planificador de reportes: modelo barato con salida estructurada que elige el período (las fechas las calcula el código). */
 export const makeReportPlanModel = (env: Env) =>
   claude(env, env.MODEL_ROUTER).withStructuredOutput(planOutputSchema, { name: "report_period", includeRaw: true });
+
+/** Memoria (fase 8): modelo barato con salida estructurada que decide guardar, listar o borrar. El resto lo hace el código. */
+export const makeMemoryModel = (env: Env) =>
+  claude(env, env.MODEL_ROUTER).withStructuredOutput(memoryOutputSchema, { name: "memory", includeRaw: true });
 
 /** Escribe la «Lectura» de un reporte (sin herramientas). Las cifras del reporte las arma el código. */
 export const makeReportModel = (env: Env) => claude(env, env.MODEL_REPORT);

@@ -164,6 +164,7 @@ export const AGENT_LABELS: Record<AgentNode, string> = {
   report_graph: "reportes",
   chat: "charla",
   clarify: "aclaración",
+  memory: "memoria",
 };
 
 const usageBrief = (usage: ModelUsage[]) => {
