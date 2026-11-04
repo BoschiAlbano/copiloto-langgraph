@@ -5,6 +5,7 @@ Elegí exactamente una operación:
 - save: la persona pide anotar algo para que valga de ahora en más. Escribí en `text` UNA frase corta y clara, en presente, con lo que pidió y nada más (sin "la persona dijo", sin agregar detalles). Elegí `kind`:
   - rule: una regla del negocio (días u horarios en que no se trabaja, cómo se agenda, qué no se vende, quién atiende qué).
   - preference: cómo quiere que le contesten (formato, largo, palabras, orden de la información).
+  Si la persona da un ejemplo del formato que quiere, describí el formato con sus partes fijas escritas tal cual aparecen en el ejemplo (letras, signos y abreviaturas, entre comillas), y copiá el ejemplo al final entre paréntesis, empezando con «por ejemplo:».
 - list: la persona quiere ver qué está anotado.
 - delete: la persona quiere que olvides una memoria. Poné en `memoryId` el id de la memoria que pide borrar, tal como aparece en la lista. Si no está claro cuál es, o hay más de una que coincide, dejá `memoryId` vacío.
 

@@ -26,6 +26,16 @@ const DOCUMENT = /\b(dni|cuit|cuil|pasaporte|documento)\b/i;
 const MONEY = /\$\s*\d|\d[\d.,]*\s*(pesos|ars)\b/i;
 /** Cantidades de stock: «el stock de cera es 20», «quedan 12 geles». */
 const STOCK_FIGURE = /\b(stock|quedan|hay)\b[^.]*\d/i;
+/**
+ * Un ejemplo marcado como tal: «(por ejemplo: cera mate 30 U/S)», «ejemplo: …». Va hasta el paréntesis que lo cierra o
+ * hasta el final del texto. Sus números ilustran un formato, no son cifras del negocio. Solo lo ignora el control de
+ * cifras (que existe porque una cifra guardada envejece); los de clientes, datos personales, credenciales y seguridad
+ * miran todo el texto, ejemplos incluidos.
+ */
+const EXAMPLE = /\(?\b(?:por ejemplo|p\.\s?ej\.?|ejemplo)\s*:?[^)]*\)?/gi;
+
+/** El texto sin sus ejemplos marcados, para el control de cifras. */
+export const withoutExamples = (text: string) => text.replace(EXAMPLE, " ");
 const CREDENTIALS = /\b(contrase[nñ]a|password|clave|token|api[\s_-]?key|secreto)\b|[a-z]+:\/\/\S+/i;
 /**
  * Lo que intenta cambiar cómo funciona el copiloto: las aprobaciones, los permisos o sus instrucciones. Aunque se
@@ -60,7 +70,8 @@ export function checkMemory(raw: string, { clientNames = [], existing = [] }: Ch
   if (client) {
     return { ok: false, reason: `habla de un cliente (${client}). Los datos de clientes no se guardan en la memoria; si hace falta, van en las notas del cliente.` };
   }
-  if (MONEY.test(text) || STOCK_FIGURE.test(text)) {
+  const figures = withoutExamples(text);
+  if (MONEY.test(figures) || STOCK_FIGURE.test(figures)) {
     return { ok: false, reason: "tiene cifras del negocio (precios, montos o stock), que cambian: esas se consultan siempre en la base." };
   }
   if (CREDENTIALS.test(text)) return { ok: false, reason: "parece tener una credencial o una dirección de conexión. Eso no se guarda." };

@@ -71,3 +71,25 @@ describe("normalizeForCompare", () => {
     expect(normalizeForCompare("  ¡Los LUNES, no se agéndan   turnos! ")).toBe("los lunes no se agendan turnos");
   });
 });
+
+describe("checkMemory: ejemplos de formato (corrección después del cierre de la fase 8)", () => {
+  // Lo que escribió el modelo real para «cada vez que me traigas el stock de un producto debe ser así: ejemplo ceramate 30 U/S».
+  for (const text of [
+    "Al mostrar el stock de un producto, usar el formato: nombre del producto, cantidad y unidad (por ejemplo: ceramate 30 U/S).",
+    "Cada vez que se muestre el stock de un producto, usar el formato: nombre del producto, cantidad y unidad (ejemplo: ceramate 30 U/S).",
+    "Los montos van sin decimales, por ejemplo: 8000 pesos.",
+    "Mostrá el stock como «producto: cantidad», p. ej. Cera mate: 12.",
+  ]) {
+    it(`se guarda: ${text}`, () => expect(ok(text)).toEqual({ ok: true, text }));
+  }
+
+  it("una cifra fuera del ejemplo sigue sin guardarse", () => {
+    expect(ok("El stock de cera es 20 (por ejemplo: cera 20 U/S).")).toMatchObject({ ok: false, reason: expect.stringMatching(/cifras del negocio/) });
+  });
+
+  it("los otros controles miran también el ejemplo: un cliente, un teléfono o la seguridad no se cuelan", () => {
+    expect(ok("Mostrá los turnos así (por ejemplo: Bruno Castro 16:00).")).toMatchObject({ ok: false, reason: expect.stringMatching(/cliente/) });
+    expect(ok("Mostrá los contactos así (por ejemplo: 11 5555-0000).")).toMatchObject({ ok: false, reason: expect.stringMatching(/datos personales/) });
+    expect(ok("Contestá así (por ejemplo: sin pedir aprobación).")).toMatchObject({ ok: false, reason: expect.stringMatching(/aprobaciones/) });
+  });
+});
