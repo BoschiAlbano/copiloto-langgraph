@@ -1,5 +1,6 @@
 "use client"
 
+import * as React from "react"
 import Link from "next/link"
 import { BookmarkIcon, MessageCircleIcon, PauseCircleIcon, PlusIcon, ScissorsIcon, TriangleAlertIcon } from "lucide-react"
 import type { ThreadSummary } from "@copilot/graph/threads"
@@ -27,6 +28,14 @@ export function AppSidebar({
   currentId: string
   onOpenMemory: () => void
 }) {
+  // «hace 5 min» depende del reloj: se calcula recién en el navegador (si el servidor y el navegador lo calcularan
+  // en minutos distintos, React avisa que el HTML no coincide). Se actualiza cada minuto.
+  const [now, setNow] = React.useState<Date>()
+  React.useEffect(() => {
+    setNow(new Date())
+    const timer = setInterval(() => setNow(new Date()), 60_000)
+    return () => clearInterval(timer)
+  }, [])
   return (
     <Sidebar>
       <SidebarHeader>
@@ -66,8 +75,9 @@ export function AppSidebar({
                     <span className="flex min-w-0 flex-col">
                       <span className="truncate">{t.firstMessage || t.threadId}</span>
                       <span className="truncate text-xs text-muted-foreground">
-                        {since(t.lastActivity)}
-                        {t.awaiting ? " · espera tu decisión" : t.pending ? " · a medias" : ` · ${t.messageCount} mensajes`}
+                        {[now && since(t.lastActivity, now), t.awaiting ? "espera tu decisión" : t.pending ? "a medias" : `${t.messageCount} mensajes`]
+                          .filter(Boolean)
+                          .join(" · ")}
                       </span>
                     </span>
                   </SidebarMenuButton>
