@@ -8,6 +8,9 @@
   },
   "scripts": {
     "chat": "tsx src/cli/chat.ts",
+    "web": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build",
+    "web:install": "npm --prefix web install",
     "test": "vitest run && vitest run --config vitest.writes.config.ts",
     "test:writes": "vitest run --config vitest.writes.config.ts",
     "typecheck": "tsc --noEmit",

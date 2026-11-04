@@ -1,9 +1,9 @@
-import { readFileSync } from "node:fs";
+import { readPrompt } from "../prompts/read.js";
 import { describeNow } from "../../tools/dates.js";
 import { agentInput, type TaskState } from "../plan.js";
 import type { AgentModel } from "./agent.js";
 
-const actionPrompt = readFileSync(new URL("../prompts/action.md", import.meta.url), "utf8");
+const actionPrompt = readPrompt(new URL("../prompts/action.md", import.meta.url));
 
 export const renderActionPrompt = (now: Date) => actionPrompt.replace("{{currentDateTime}}", describeNow(now));
 

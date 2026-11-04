@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readPrompt } from "../prompts/read.js";
 import type { BaseMessage } from "@langchain/core/messages";
 import { describeNow } from "../../tools/dates.js";
 import { agentInput, type TaskState } from "../plan.js";
@@ -11,7 +11,7 @@ export interface AgentModel {
   invoke(messages: BaseMessage[]): Promise<BaseMessage>;
 }
 
-const systemTemplate = readFileSync(new URL("../prompts/system.md", import.meta.url), "utf8");
+const systemTemplate = readPrompt(new URL("../prompts/system.md", import.meta.url));
 
 /** El prompt lleva la fecha de hoy en cada llamada: sin ella, "mañana" no significa nada. */
 export function renderSystemPrompt(now: Date) {

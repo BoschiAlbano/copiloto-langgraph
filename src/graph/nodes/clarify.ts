@@ -1,10 +1,10 @@
-import { readFileSync } from "node:fs";
+import { readPrompt } from "../prompts/read.js";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { buildRouterContext, formatTranscript } from "../router-context.js";
 import type { TaskState } from "../plan.js";
 import type { AgentModel } from "./agent.js";
 
-const clarifyPrompt = readFileSync(new URL("../prompts/clarify.md", import.meta.url), "utf8");
+const clarifyPrompt = readPrompt(new URL("../prompts/clarify.md", import.meta.url));
 
 /**
  * Rama para pedidos que no se entienden: una llamada corta a un modelo sin herramientas que

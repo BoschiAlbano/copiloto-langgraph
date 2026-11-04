@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readPrompt } from "../prompts/read.js";
 import { HumanMessage, SystemMessage, type BaseMessage } from "@langchain/core/messages";
 import { normalizePlan, PLAN_FALLBACK_REASON, type TaskState } from "../plan.js";
 import { buildRouterContext, formatTranscript } from "../router-context.js";
@@ -12,7 +12,7 @@ export interface RouterModel {
   invoke(messages: BaseMessage[]): Promise<{ parsed?: unknown } | null | undefined>;
 }
 
-const routerPrompt = readFileSync(new URL("../prompts/router.md", import.meta.url), "utf8");
+const routerPrompt = readPrompt(new URL("../prompts/router.md", import.meta.url));
 
 export const ROUTER_FALLBACK_REASON = PLAN_FALLBACK_REASON;
 

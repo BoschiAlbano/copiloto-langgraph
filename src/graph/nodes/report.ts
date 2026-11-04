@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readPrompt } from "../prompts/read.js";
 import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { Send } from "@langchain/langgraph";
 import { describeNow } from "../../tools/dates.js";
@@ -24,8 +24,8 @@ export interface ReportNodeState extends TaskState {
 //   report_<sección> tres nodos que corren A LA VEZ (fan-out con Send); no llaman a ningún modelo
 //   compose_report   fan-in: arma el texto con las cifras (código) y le suma la «Lectura» del modelo
 
-const planPrompt = readFileSync(new URL("../prompts/report-plan.md", import.meta.url), "utf8");
-const composePrompt = readFileSync(new URL("../prompts/report.md", import.meta.url), "utf8");
+const planPrompt = readPrompt(new URL("../prompts/report-plan.md", import.meta.url));
+const composePrompt = readPrompt(new URL("../prompts/report.md", import.meta.url));
 
 export const renderPlanPrompt = (now: Date) => planPrompt.replace("{{currentDateTime}}", describeNow(now));
 

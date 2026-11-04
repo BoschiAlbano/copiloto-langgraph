@@ -1,10 +1,10 @@
-import { readFileSync } from "node:fs";
+import { readPrompt } from "../prompts/read.js";
 import { SystemMessage } from "@langchain/core/messages";
 import { renderBusinessContext } from "../../memory/context.js";
 import type { TaskState } from "../plan.js";
 import type { AgentModel } from "./agent.js";
 
-const chatPrompt = readFileSync(new URL("../prompts/chat.md", import.meta.url), "utf8");
+const chatPrompt = readPrompt(new URL("../prompts/chat.md", import.meta.url));
 
 /**
  * Rama de charla: Claude SIN herramientas enlazadas. No hay nada que llamar, así que

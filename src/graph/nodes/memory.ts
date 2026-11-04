@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readPrompt } from "../prompts/read.js";
 import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { LangGraphRunnableConfig } from "@langchain/langgraph";
 import { z } from "zod";
@@ -24,7 +24,7 @@ export type MemoryOutput = z.infer<typeof memoryOutputSchema>;
 /** El modelo de memoria: igual que el router, algo que devuelve `{ parsed }`. */
 export type MemoryModel = RouterModel;
 
-const memoryPrompt = readFileSync(new URL("../prompts/memory.md", import.meta.url), "utf8");
+const memoryPrompt = readPrompt(new URL("../prompts/memory.md", import.meta.url));
 
 const KIND_LABEL = { rule: "regla", preference: "preferencia" } as const;
 
