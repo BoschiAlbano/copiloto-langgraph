@@ -3,6 +3,7 @@ import type { ApprovalRequest } from "../graph/approval.js";
 import type { TurnResult } from "../graph/run-turn.js";
 import type { CheckpointInfo, ThreadSummary } from "../graph/threads.js";
 import type { AgentNode } from "../graph/plan.js";
+import type { Memory } from "../memory/store.js";
 import type { ActionResult } from "../graph/usage.js";
 import { costOfUsage, totalUsage, type ModelUsage } from "../graph/usage-tracker.js";
 
@@ -155,6 +156,18 @@ export function parseEditInput(input: string, current: Record<string, unknown>):
 export function describeUsageTotal(usage: ModelUsage[]): string {
   const t = totalUsage(usage);
   return `${t.calls} llamada(s) al modelo · entrada ${number(t.inputTokens)} · salida ${number(t.outputTokens)} tokens · ${usd(costOfUsage(usage))}`;
+}
+
+const MEMORY_KIND_LABELS = { rule: "regla", preference: "preferencia" } as const;
+
+/** Una memoria por renglón para `npm run memory`: id, tipo, cuándo se anotó y el texto. */
+export function describeMemoryRow(m: Pick<Memory, "id" | "kind" | "text" | "createdAt">): string {
+  return `${m.id}  ${MEMORY_KIND_LABELS[m.kind].padEnd(11)}  ${formatWhen(m.createdAt).padEnd(12)}  ${m.text}`;
+}
+
+/** La línea de la memoria en el chat (fase 8): cuántas memorias había en contexto en este turno. */
+export function describeMemoryStatus(count: number): string {
+  return `[memoria] ${count === 1 ? "1 en contexto" : `${count} en contexto`}`;
 }
 
 /** Cómo se llama cada agente en la terminal. */

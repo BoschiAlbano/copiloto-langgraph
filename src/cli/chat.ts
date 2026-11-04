@@ -10,6 +10,7 @@ import { costOfUsage, mergeUsage, type ModelUsage } from "../graph/usage-tracker
 import {
   describeActionResult,
   describeAgents,
+  describeMemoryStatus,
   describeCard,
   describeReportStatus,
   describeRoute,
@@ -107,6 +108,8 @@ function show(turn: TurnResult, withRoute: boolean) {
   if (withRoute) describeRoute(route).forEach((line, i) => console.log(dim(`${i === 0 ? "\n" : ""}  ${line}`)));
   for (const call of summary.toolCalls) console.log(dim(`  [herramienta] ${call.name} ${JSON.stringify(call.args)}`));
   if (turn.report) console.log(dim(`  ${describeReportStatus(turn.report)}`));
+  // La memoria se muestra si había alguna o si el turno la tocó (anotar, listar o borrar).
+  if (turn.memoryCount > 0 || route.tasks?.some((t) => t.intent === "memory")) console.log(dim(`  ${describeMemoryStatus(turn.memoryCount)}`));
   // Lo que pasó con la acción lo cuenta el código; el modelo lo comenta después.
   for (const result of summary.actions) console.log(`\n${describeActionResult(result)}`);
   if (turn.reply) console.log(`\nCopiloto: ${turn.reply}\n`);

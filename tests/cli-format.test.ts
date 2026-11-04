@@ -252,3 +252,20 @@ describe("describeRoute (fase 7)", () => {
     expect(describeRoute({})).toEqual([]);
   });
 });
+
+describe("memoria en la terminal (fase 8)", () => {
+  it("describeMemoryRow: id, tipo, cuándo se anotó (hora de Argentina) y el texto", async () => {
+    const { describeMemoryRow } = await import("../src/cli/format.js");
+    expect(describeMemoryRow({ id: "b29daa", kind: "rule", text: "Los lunes no se agendan turnos.", createdAt: "2026-11-04T19:27:00Z" })).toBe(
+      "b29daa  regla        4/11, 16:27   Los lunes no se agendan turnos.",
+    );
+    expect(describeMemoryRow({ id: "c3d4e5", kind: "preference", text: "Contestá corto.", createdAt: "2026-11-04T19:27:00Z" })).toMatch(/^c3d4e5 {2}preferencia {2}/);
+  });
+
+  it("describeMemoryStatus", async () => {
+    const { describeMemoryStatus } = await import("../src/cli/format.js");
+    expect(describeMemoryStatus(0)).toBe("[memoria] 0 en contexto");
+    expect(describeMemoryStatus(1)).toBe("[memoria] 1 en contexto");
+    expect(describeMemoryStatus(3)).toBe("[memoria] 3 en contexto");
+  });
+});

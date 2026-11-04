@@ -21,6 +21,8 @@ export interface TurnResult {
   agents: AgentStep[];
   /** Lo que gastó la coordinación (el router), aparte de los agentes. */
   coordination: ModelUsage[];
+  /** Cuántas memorias del negocio estaban en contexto al terminar el turno (fase 8). */
+  memoryCount: number;
   /** El grafo se pausó: hay una acción propuesta esperando la decisión (`resumeTurn`). */
   awaiting?: ApprovalRequest;
   /** Si el turno fue un reporte: el período y cómo salió cada sección. */
@@ -74,6 +76,7 @@ async function invokeTurn(agent: TurnAgent, threadId: string, input: TurnInput, 
     },
     summary: summarizeTurn(messages.slice(already), tracker.usage()),
     ...agentSteps({ plan, messages, already, runs: tracker.runs(), awaiting: Boolean(awaiting) }),
+    memoryCount: state.businessContext?.length ?? 0,
     ...(awaiting && { awaiting }),
     // `state.report` queda en el hilo después de un reporte: solo cuenta si ESTE turno tuvo un reporte terminado.
     ...(!awaiting && plan?.tasks.some((t) => t.intent === "report") && report?.sections

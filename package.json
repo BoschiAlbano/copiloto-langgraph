@@ -12,6 +12,7 @@
     "test:writes": "vitest run --config vitest.writes.config.ts",
     "typecheck": "tsc --noEmit",
     "threads": "tsx src/cli/threads.ts",
+    "memory": "tsx src/cli/memory.ts",
     "bench": "tsx src/cli/bench.ts",
     "eval:router": "tsx src/cli/eval-router.ts",
     "eval:actions": "tsx src/cli/eval-actions.ts",
