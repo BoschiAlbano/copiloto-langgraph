@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { SystemMessage } from "@langchain/core/messages";
+import { renderBusinessContext } from "../../memory/context.js";
 import type { TaskState } from "../plan.js";
 import type { AgentModel } from "./agent.js";
 
@@ -11,8 +12,8 @@ const chatPrompt = readFileSync(new URL("../prompts/chat.md", import.meta.url), 
  * grafo de la fase 1, con otro prompt.
  */
 export function makeChatNode(model: AgentModel) {
-  return async (state: Pick<TaskState, "messages">) => {
-    const reply = await model.invoke([new SystemMessage(chatPrompt), ...state.messages]);
+  return async (state: Pick<TaskState, "messages" | "businessContext">) => {
+    const reply = await model.invoke([new SystemMessage(chatPrompt + renderBusinessContext(state.businessContext)), ...state.messages]);
     return { messages: [reply] };
   };
 }

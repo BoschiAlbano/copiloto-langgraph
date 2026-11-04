@@ -89,7 +89,7 @@ describe("CA1: las tres secciones corren a la vez", () => {
 
     // Fase 7: en la historia del grafo principal, el subgrafo de reportes es UN paso…
     const history = (await getHistory(t.graph as never, "hilo-reporte")).reverse(); // del más viejo al más nuevo
-    expect(history.map((c) => c.ranNodes.join("+"))).toEqual(["", "__start__", "router", "supervisor", "report_graph", "supervisor"]);
+    expect(history.map((c) => c.ranNodes.join("+"))).toEqual(["", "__start__", "load_memory", "router", "supervisor", "report_graph", "supervisor"]);
     expect(history.at(-1)!.next).toEqual([]);
 
     // …y sus pasos internos quedan en sus propios checkpoints, donde se ve el paralelismo.

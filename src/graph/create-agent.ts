@@ -3,6 +3,7 @@ import { createPrisma } from "../db/client.js";
 import { ACTION_DEFINITIONS } from "../tools/actions/definitions.js";
 import { makeReadTools } from "../tools/index.js";
 import { makeActionRunner } from "./action-runner.js";
+import { createMemoryStore, MEMORY_NAMESPACE } from "../memory/store.js";
 import { createCheckpointing } from "./checkpointing.js";
 import { buildGraph } from "./index.js";
 import { claude, makeClarifyModel, makeReportModel, makeReportPlanModel, makeRouterModel } from "./models.js";
@@ -18,13 +19,17 @@ export type Agent = ReturnType<typeof createAgent>;
  *   acciones. Las acciones se ejecutan solo tras una aprobación, con el rol copilot_actions;
  * - charla: MODEL_AGENT sin herramientas;
  * - reportes: MODEL_ROUTER elige el período, tres secciones leen la base a la vez (sin modelo) y MODEL_REPORT escribe la «Lectura»;
- * - hilos: el estado se guarda en Postgres con el rol copilot_checkpointer.
+ * - hilos: el estado se guarda en Postgres con el rol copilot_checkpointer;
+ * - memoria de largo plazo (fase 8): un Store de Postgres, mismo rol y esquema que los hilos. `memoryNamespace` es para los
+ *   tests con el modelo real, que usan uno propio y no tocan las memorias del negocio.
  */
-export function createAgent(env: Env) {
+export function createAgent(env: Env, options: { memoryNamespace?: string[] } = {}) {
   const db = createPrisma(env.DATABASE_URL_READ);
   const actionsDb = createPrisma(env.DATABASE_URL_ACTIONS);
   const tools = makeReadTools(db);
   const checkpointing = createCheckpointing(env.DATABASE_URL_CHECKPOINTS);
+  // La memoria de largo plazo (fase 8): el Store, en el mismo esquema y con el mismo rol que los hilos.
+  const store = createMemoryStore(env.DATABASE_URL_CHECKPOINTS);
 
   const graph = buildGraph({
     models: {
@@ -41,13 +46,17 @@ export function createAgent(env: Env) {
     // Las secciones de un reporte solo LEEN: usan el mismo cliente de solo lectura que las herramientas.
     reportSections: (section, reportId, range) => runSection(section, reportId, range, db),
     checkpointer: checkpointing.saver,
+    store,
+    memoryNamespace: options.memoryNamespace,
   });
   return {
     graph,
     checkpointer: checkpointing.saver,
     pool: checkpointing.pool,
+    /** La memoria de largo plazo y su namespace (para listar y borrar desde la terminal). */
+    memory: { store, namespace: options.memoryNamespace ?? MEMORY_NAMESPACE },
     close: async () => {
-      await Promise.all([db.$disconnect(), actionsDb.$disconnect(), checkpointing.close()]);
+      await Promise.all([db.$disconnect(), actionsDb.$disconnect(), checkpointing.close(), store.stop()]);
     },
   };
 }

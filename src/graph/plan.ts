@@ -1,5 +1,6 @@
 import { AIMessage, HumanMessage, SystemMessage, type BaseMessage } from "@langchain/core/messages";
 import { z } from "zod";
+import { renderBusinessContext, type BusinessMemory } from "../memory/context.js";
 import { INTENTS, routerOutputSchema, type Intent } from "./intents.js";
 
 // El plan de un turno (fase 7): el router parte el pedido en tareas y el supervisor las recorre en orden, una por
@@ -81,6 +82,8 @@ export function normalizePlan(output: unknown, lastMessage: string): NormalizedP
 export interface TaskState {
   messages: BaseMessage[];
   plan?: Plan;
+  /** Las memorias del negocio (fase 8). */
+  businessContext?: BusinessMemory[];
 }
 
 /** La tarea en curso, solo si el turno tiene más de una: con una sola, el agente se comporta como antes de la fase 7. */
@@ -104,7 +107,9 @@ export const handoffMessage = (task: Task) => new HumanMessage(`[Indicación del
  * indicación que no se guarda en el hilo: la API de Claude tomaría un mensaje de IA al final como un texto a
  * continuar, no como un pedido. Va en el punto de arranque (no al final) para que siga ahí en cada vuelta del ciclo.
  */
-export function agentInput(system: string, state: TaskState): BaseMessage[] {
+export function agentInput(base: string, state: TaskState): BaseMessage[] {
+  // Las memorias del negocio (fase 8) van después de las reglas del agente y antes de su parte del pedido.
+  const system = base + renderBusinessContext(state.businessContext);
   const task = sharedTask(state);
   if (!task) return [new SystemMessage(system), ...state.messages];
   const at = task.startedAt ?? state.messages.length;

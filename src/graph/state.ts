@@ -4,6 +4,7 @@ import { z } from "zod";
 import { approvalSchema, pendingActionSchema } from "./approval.js";
 import { INTENTS } from "./intents.js";
 import { AGENT_NODE_NAMES, planSchema } from "./plan.js";
+import { businessMemorySchema } from "../memory/context.js";
 import { mergeParts, partSchema, reportSchema } from "./report/state.js";
 
 // Estado del grafo PRINCIPAL (fase 7): lo que comparten el router, el supervisor y los agentes.
@@ -22,6 +23,8 @@ export const AgentState = new StateSchema({
   activeAgent: z.enum(AGENT_NODE_NAMES).nullable().optional(),
   // Reporte del turno (fase 6): período, título y estado de cada sección. Lo comparte el subgrafo de reportes.
   report: reportSchema.optional(),
+  // Las memorias del negocio (fase 8): las lee `load_memory` del Store al empezar cada turno. Se reemplaza.
+  businessContext: z.array(businessMemorySchema).optional(),
 });
 
 export type AgentStateType = typeof AgentState.State;
@@ -30,10 +33,11 @@ export type AgentStateType = typeof AgentState.State;
 // MISMO nombre en los dos esquemas, y al terminar devuelve solo esos: son el estado compartido. Los campos que el
 // subgrafo tiene y el principal no son privados: viven en los checkpoints del subgrafo y nadie más los ve.
 
-/** Consultas: solo lo compartido (el historial y el plan del turno, para saber qué parte le toca). */
+/** Consultas: solo lo compartido (el historial, el plan del turno para saber qué parte le toca y las memorias). */
 export const QueryState = new StateSchema({
   messages: MessagesValue,
   plan: planSchema.optional(),
+  businessContext: z.array(businessMemorySchema).optional(),
 });
 export type QueryStateType = typeof QueryState.State;
 
@@ -56,6 +60,8 @@ export type ReportStateType = typeof ReportState.State;
 export const ActionState = new StateSchema({
   messages: MessagesValue,
   plan: planSchema.optional(),
+  // Compartido (fase 8): una regla del negocio puede impedir proponer una acción.
+  businessContext: z.array(businessMemorySchema).optional(),
   // Acción que el modelo pidió y espera la decisión de la persona (fase 5). Sin reducer; `null` cuando no hay ninguna.
   pendingAction: pendingActionSchema.nullable().optional(),
   // Decisión ya procesada sobre esa acción. `null` cuando no hay ninguna.
@@ -74,6 +80,7 @@ export const makeState = (messages: BaseMessage[], overrides: Partial<NodeState>
   plan: undefined,
   activeAgent: undefined,
   report: undefined,
+  businessContext: undefined,
   pendingAction: undefined,
   approval: undefined,
   reportParts: [],

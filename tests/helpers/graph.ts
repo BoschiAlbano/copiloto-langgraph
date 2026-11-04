@@ -1,5 +1,5 @@
 import type { StructuredToolInterface } from "@langchain/core/tools";
-import type { BaseCheckpointSaver } from "@langchain/langgraph";
+import type { BaseCheckpointSaver, BaseStore } from "@langchain/langgraph";
 import { buildGraph } from "../../src/graph/index.js";
 import type { Intent } from "../../src/graph/intents.js";
 import type { AgentModel } from "../../src/graph/nodes/agent.js";
@@ -71,6 +71,8 @@ export function buildTestGraph({
   router,
   now,
   checkpointer,
+  store,
+  memoryNamespace,
 }: {
   model: AgentModel;
   actionModel?: AgentModel;
@@ -83,6 +85,9 @@ export function buildTestGraph({
   router?: RouterModel;
   now?: () => Date;
   checkpointer?: BaseCheckpointSaver;
+  /** Memoria de largo plazo (fase 8). Sin Store, no hay memorias. */
+  store?: BaseStore;
+  memoryNamespace?: string[];
 }) {
   return buildGraph({
     models: {
@@ -99,5 +104,7 @@ export function buildTestGraph({
     reportSections,
     now,
     checkpointer,
+    store,
+    memoryNamespace,
   });
 }

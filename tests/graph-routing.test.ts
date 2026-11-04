@@ -121,7 +121,7 @@ describe("cada intención llega a su agente (CA5), pasando por el supervisor (fa
     it(`${intent} → router → supervisor → ${agent} → supervisor`, async () => {
       const t = setup([route(intent)]);
       const { path, inner, state } = await runPath(t.graph, ask());
-      expect(outer(path)).toEqual(["router", "supervisor", agent, "supervisor"]);
+      expect(outer(path)).toEqual(["load_memory", "router", "supervisor", agent, "supervisor"]);
       // Las tres secciones del reporte corren en el mismo paso: su orden entre sí no está definido, por eso se ordenan.
       const sections = inner.filter((n) => n.includes("/report_")).sort();
       const comparable = intent === "report" ? [inner[0]!, ...sections, inner.at(-1)!] : inner;
@@ -137,7 +137,7 @@ describe("cada intención llega a su agente (CA5), pasando por el supervisor (fa
   it("la consulta con herramientas recorre agent → tools → agent dentro del subgrafo de consultas", async () => {
     const t = setup([route("query")], [toolCall("1"), new AIMessage("Hay 2 productos bajos.")]);
     const { path, state } = await runPath(t.graph, ask("¿stock bajo?"));
-    expect(path).toEqual(["router", "supervisor", "query_graph/agent", "query_graph/tools", "query_graph/agent", "query_graph", "supervisor"]);
+    expect(path).toEqual(["load_memory", "router", "supervisor", "query_graph/agent", "query_graph/tools", "query_graph/agent", "query_graph", "supervisor"]);
     expect(state.messages.at(-1)?.text).toBe("Hay 2 productos bajos.");
   });
 });
@@ -185,7 +185,7 @@ describe("el router decide de nuevo en cada turno", () => {
     expect(turn1.state.intent).toBe("query");
     const turn2 = await runPath(t.graph, [...turn1.state.messages, new HumanMessage("gracias")]);
     expect(turn2.state.intent).toBe("chat");
-    expect(outer(turn2.path)).toEqual(["router", "supervisor", "chat", "supervisor"]);
+    expect(outer(turn2.path)).toEqual(["load_memory", "router", "supervisor", "chat", "supervisor"]);
   });
 });
 
@@ -193,7 +193,7 @@ describe("fallas del router (CA7)", () => {
   it("una salida inválida sigue por query y avisa", async () => {
     const t = setup([{ parsed: null }]);
     const { path, state } = await runPath(t.graph, ask());
-    expect(outer(path)).toEqual(["router", "supervisor", "query_graph", "supervisor"]);
+    expect(outer(path)).toEqual(["load_memory", "router", "supervisor", "query_graph", "supervisor"]);
     expect(state.intent).toBe("query");
     expect(t.warn).toHaveBeenCalledOnce();
   });

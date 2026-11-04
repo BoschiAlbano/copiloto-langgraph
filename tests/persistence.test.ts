@@ -131,10 +131,10 @@ describe.skipIf(!checkpointsUrl)("persistencia de hilos", () => {
     // Desde la fase 7 la historia del hilo es la del grafo principal: el paso por cada subgrafo es UN paso (los de
     // adentro quedan en los checkpoints del subgrafo; ver tests/threads-subgraphs.test.ts).
     const paths: [Intent, string[]][] = [
-      ["query", ["__start__", "router", "supervisor", "query_graph", "supervisor"]],
-      ["chat", ["__start__", "router", "supervisor", "chat", "supervisor"]],
-      ["unclear", ["__start__", "router", "supervisor", "clarify", "supervisor"]],
-      ["action", ["__start__", "router", "supervisor", "action_graph", "supervisor"]],
+      ["query", ["__start__", "load_memory", "router", "supervisor", "query_graph", "supervisor"]],
+      ["chat", ["__start__", "load_memory", "router", "supervisor", "chat", "supervisor"]],
+      ["unclear", ["__start__", "load_memory", "router", "supervisor", "clarify", "supervisor"]],
+      ["action", ["__start__", "load_memory", "router", "supervisor", "action_graph", "supervisor"]],
     ];
     for (const [intent, expected] of paths) {
       it(`la ruta ${intent} deja un checkpoint por paso, con la secuencia de nodos esperada`, async () => {

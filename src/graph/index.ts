@@ -1,5 +1,5 @@
 import type { StructuredToolInterface } from "@langchain/core/tools";
-import { END, START, StateGraph, type BaseCheckpointSaver } from "@langchain/langgraph";
+import { END, START, StateGraph, type BaseCheckpointSaver, type BaseStore } from "@langchain/langgraph";
 import { buildActionGraph } from "../agents/action.js";
 import { buildQueryGraph } from "../agents/query.js";
 import { buildReportGraph } from "../agents/report.js";
@@ -7,6 +7,7 @@ import type { ActionRunner } from "./nodes/actions.js";
 import type { AgentModel } from "./nodes/agent.js";
 import { makeChatNode } from "./nodes/chat.js";
 import { makeClarifyNode } from "./nodes/clarify.js";
+import { makeLoadMemoryNode } from "./nodes/load-memory.js";
 import type { PlanModel, SectionRunner } from "./nodes/report.js";
 import { makeRouterNode, type RouterModel } from "./nodes/router.js";
 import { supervise } from "./nodes/supervisor.js";
@@ -42,6 +43,10 @@ export interface BuildGraphOptions {
   warn?: (message: string) => void;
   /** Guarda el estado después de cada paso, por thread_id, también el de los subgrafos. Las acciones lo necesitan. */
   checkpointer?: BaseCheckpointSaver;
+  /** Memoria de largo plazo (fase 8), compartida por todos los hilos. Sin Store, no hay memorias. */
+  store?: BaseStore;
+  /** Namespace de las memorias en el Store (los tests usan uno propio). */
+  memoryNamespace?: string[];
 }
 
 /**
@@ -58,9 +63,11 @@ export interface BuildGraphOptions {
  * Los tres subgrafos se agregan como nodos: comparten con este grafo los campos del mismo nombre (`messages`, `plan`
  * y, el de reportes, `report`) y guardan sus pasos con el mismo checkpointer, en su propio espacio de nombres.
  */
-export function buildGraph({ models, tools, actions, reportSections, now, warn, checkpointer }: BuildGraphOptions) {
+export function buildGraph({ models, tools, actions, reportSections, now, warn, checkpointer, store, memoryNamespace }: BuildGraphOptions) {
   return (
     new StateGraph(AgentState)
+      // Fase 8: cada turno empieza leyendo las memorias del negocio del Store.
+      .addNode("load_memory", makeLoadMemoryNode({ namespace: memoryNamespace }))
       .addNode("router", makeRouterNode(models.router, { warn }))
       // Devuelve un Command (actualización + destino): los destinos posibles se declaran en `ends`.
       .addNode("supervisor", supervise, { ends: [...AGENT_NODE_NAMES, END] })
@@ -69,13 +76,15 @@ export function buildGraph({ models, tools, actions, reportSections, now, warn, 
       .addNode("report_graph", buildReportGraph({ plan: models.reportPlan, reading: models.report, sections: reportSections, now, warn }))
       .addNode("chat", makeChatNode(models.chat))
       .addNode("clarify", makeClarifyNode(models.clarify))
-      .addEdge(START, "router")
+      .addEdge(START, "load_memory")
+      .addEdge("load_memory", "router")
       .addEdge("router", "supervisor")
       .addEdge("query_graph", "supervisor")
       .addEdge("action_graph", "supervisor")
       .addEdge("report_graph", "supervisor")
       .addEdge("chat", "supervisor")
       .addEdge("clarify", "supervisor")
-      .compile({ checkpointer })
+      // El Store se da al compilar, como el checkpointer: LangGraph se lo pasa a cada nodo en `config.store`.
+      .compile({ checkpointer, store })
   );
 }

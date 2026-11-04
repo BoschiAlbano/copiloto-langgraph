@@ -35,7 +35,7 @@ describe("historia de un pedido mixto (CA9)", () => {
     const { graph } = await mixedThread();
     const ran = (await getHistory(graph as never, "hilo-historia")).reverse().map((c) => c.ranNodes.join("+"));
     // La pausa deja dos checkpoints sobre action_graph: el de la espera y el de la reanudación, que lo completa.
-    expect(ran).toEqual(["", "__start__", "router", "supervisor", "action_graph", "supervisor", "query_graph", "supervisor"]);
+    expect(ran).toEqual(["", "__start__", "load_memory", "router", "supervisor", "action_graph", "supervisor", "query_graph", "supervisor"]);
   });
 
   it("con --subgraphs: una corrida por agente, en orden, con sus pasos internos", async () => {
