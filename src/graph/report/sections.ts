@@ -1,4 +1,5 @@
 import type { Db } from "../../db/client.js";
+import { withRetry } from "../../tools/retry.js";
 import { explainError } from "../../tools/safe.js";
 import { getSalesSummary } from "../../tools/get-sales-summary.js";
 import { getStockLevels } from "../../tools/get-stock-levels.js";
@@ -50,7 +51,12 @@ const RUNNERS: Record<Section, (db: Db, range: SectionRange) => Promise<unknown>
 /** Corre una sección y devuelve su parte. Nunca lanza. */
 export async function runSection(section: Section, reportId: string, range: SectionRange, db: Db): Promise<ReportPart> {
   try {
-    return { reportId, section, status: "ok", data: await RUNNERS[section](db, range) };
+    // Fase 10: una falla transitoria de la base se reintenta (como en las herramientas); si no se arregla, la sección
+    // sale con error y el reporte dice cuál falta (fase 6).
+    const data = await withRetry(() => RUNNERS[section](db, range), {
+      onRetry: (info) => console.warn(`[reintento] sección ${section} ${info.attempt} de ${info.attempts}`),
+    });
+    return { reportId, section, status: "ok", data };
   } catch (error) {
     return { reportId, section, status: "error", error: explainError(`sección ${section} del reporte`, error) };
   }

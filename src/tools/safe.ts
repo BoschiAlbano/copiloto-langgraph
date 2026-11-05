@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_ATTEMPTS, isTransient, withRetry, type RetryOptions } from "./retry.js";
 
 /** Error pensado para que el modelo lo lea y corrija sus parámetros (por ejemplo, un barbero inexistente). */
 export class ToolUserError extends Error {}
@@ -28,10 +29,19 @@ export function explainError(name: string, error: unknown): string {
  * inesperado (caída de la base, permisos, bugs), le da al modelo un mensaje genérico en vez
  * del detalle interno. El detalle completo va a la consola de quien opera el sistema.
  */
-export function safeTool<Input>(name: string, run: (input: Input) => Promise<unknown>) {
+export function safeTool<Input>(name: string, run: (input: Input) => Promise<unknown>, retry: RetryOptions = {}) {
   return async (input: Input) => {
     try {
-      return JSON.stringify(await run(input));
+      // Fase 10: una falla transitoria de la base (conexión caída, servidor que se reinicia) se reintenta acá adentro.
+      // El nodo de herramientas nunca ve el error (se convierte en mensaje), así que una retryPolicy del nodo no serviría.
+      const result = await withRetry(() => run(input), {
+        ...retry,
+        onRetry: (info) => {
+          console.warn(`[reintento] ${name} ${info.attempt} de ${info.attempts} (en ${info.delayMs} ms)`);
+          retry.onRetry?.(info);
+        },
+      });
+      return JSON.stringify(result);
     } catch (error) {
       if (error instanceof ToolUserError || error instanceof z.ZodError) throw error;
       const detail = error instanceof Error ? error.message.trim() : String(error);
@@ -39,7 +49,8 @@ export function safeTool<Input>(name: string, run: (input: Input) => Promise<unk
       const code = dbCode(error);
       throw new Error(
         `La herramienta ${name} falló por un problema del sistema${code ? ` (código ${code})` : ""}. ` +
-          "No depende de los parámetros: reintentar con otros valores no lo soluciona.",
+          (isTransient(error) ? `Ya se reintentó ${retry.attempts ?? DEFAULT_ATTEMPTS} veces sin éxito: la base no responde. ` : "") +
+          "No depende de los parámetros: reintentar con otros valores no lo soluciona. Decile a la persona que no pudiste consultar ese dato y no lo inventes.",
       );
     }
   };

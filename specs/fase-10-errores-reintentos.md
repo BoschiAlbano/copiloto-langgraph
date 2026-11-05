@@ -8,7 +8,7 @@ Que el copiloto se recupere de fallas sin quedar en loops ni inventar resultados
 ## Contexto
 Existe de la fase 9 (etiqueta `fase-09`), más la documentación en `/doc`:
 
-- **Herramientas.** Una herramienta que falla por un problema del sistema le devuelve al modelo un mensaje genérico (`safeTool`, fase 2). No hay reintentos propios. El SDK de Anthropic sí reintenta solo las llamadas al modelo: 2 veces ante errores 429, 5xx o 529.
+- **Herramientas.** Una herramienta que falla por un problema del sistema le devuelve al modelo un mensaje genérico (`safeTool`, fase 2). No hay reintentos propios. Las llamadas al modelo sí se reintentan solas (ver la decisión de T2: las reintenta LangChain, no el SDK de Anthropic).
 - **Salidas mal formadas.** Si la salida estructurada no cumple el esquema:
   - el router cae a «consulta» (fase 3);
   - el planificador de reportes usa la semana actual (fase 6);
@@ -40,7 +40,7 @@ Qué se necesita de tu parte:
 - R4: **Quién reintenta cada cosa:**
   - los nodos que solo leen y lanzan el error (`load_memory`) usan la **`retryPolicy` de LangGraph**;
   - las herramientas y las secciones convierten sus errores en mensajes, así que el nodo nunca ve la falla: se reintenta adentro, con `withRetry`;
-  - las llamadas al modelo las reintenta el SDK de Anthropic, ahora con `maxRetries: 3` explícito;
+  - las llamadas al modelo las reintenta LangChain (`AsyncCaller`), ahora con `maxRetries: 3` explícito (por defecto eran 6);
   - **las escrituras no se reintentan solas** (`execute_action`, el nodo `memory`): una escritura que falló se informa, y la persona decide.
 
 **Topes y loops**
@@ -209,7 +209,7 @@ flowchart LR
         LM["load_memory<br/>retryPolicy de LangGraph"]
     end
     subgraph MOD["llamadas al modelo"]
-        SDK["SDK de Anthropic<br/>maxRetries: 3 (429 · 5xx · 529)"]
+        SDK["LangChain (AsyncCaller)<br/>maxRetries: 3 (429 · 5xx · 529 · red)"]
     end
     subgraph ESC["escrituras: no se reintentan solas"]
         EX["execute_action<br/>(clave única, fase 5)"]
@@ -304,3 +304,8 @@ Una tarea = un commit en la rama `dev/fase-10`.
 7. **T7:** «Editar» y «Reintentar» en la página, con el reductor y sus tests.
 8. **T8:** escenarios F1 a F3 (tests con el modelo real) y F4 a F6 (en el navegador) (CA1 y CA4 con el modelo real).
 9. **T9:** medición (CA5), mapa del grafo, README, plan y cierre con la etiqueta `fase-10` (CA6).
+
+## Decisiones tomadas durante la fase
+- **Las llamadas al modelo las reintenta LangChain, no el SDK de Anthropic** (T2). La spec decía que el SDK reintentaba 2 veces. Leyendo `@langchain/anthropic`: el cliente del SDK se crea con `maxRetries: 0` y los reintentos los hace el `AsyncCaller` de LangChain, **6 por defecto**, con espera creciente. Reintenta todo salvo los 4xx que no cambian al repetir (400, 401, 403, 404…): sí el 429, los 5xx, el 529 (sobrecarga) y los cortes de red. Con 6, un error del proveedor podía tardar casi un minuto en informarse; se bajó a 3 (`CLAUDE_MAX_RETRIES`), con test.
+- **El mensaje de una herramienta que falló dice que ya se reintentó** («Ya se reintentó 3 veces sin éxito: la base no responde») y le pide al modelo que se lo diga a la persona sin inventar el dato. El detalle técnico (la dirección de la base, por ejemplo) sigue yendo solo a la consola.
+- **LangGraph le habla al Store con `batch`.** Para simular la caída de la memoria en los tests hubo que fallar `batch`, no `search`: el grafo envuelve el Store en uno que junta las operaciones.

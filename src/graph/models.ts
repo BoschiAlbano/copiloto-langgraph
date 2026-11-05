@@ -5,7 +5,12 @@ import { memoryOutputSchema } from "./nodes/memory.js";
 import { planOutputSchema } from "./report/plan.js";
 
 // Sin `temperature`: Haiku 5.5 rechaza ese parámetro ("deprecated for this model").
-export const claude = (env: Env, model: string) => new ChatAnthropic({ model, apiKey: env.ANTHROPIC_API_KEY });
+// maxRetries (fase 10): las llamadas al modelo las reintenta LangChain (AsyncCaller), no el SDK de Anthropic (que se crea
+// con 0). Reintenta todo salvo los errores 4xx que no cambian al repetir (400, 401, 403, 404…): la sobrecarga (529), los
+// 5xx, el 429 y la red. Por defecto son 6 reintentos con espera creciente (casi un minuto antes de informar un error);
+// se bajan a 3. Los reintentos de la base van aparte (src/tools/retry.ts).
+export const CLAUDE_MAX_RETRIES = 3;
+export const claude = (env: Env, model: string) => new ChatAnthropic({ model, apiKey: env.ANTHROPIC_API_KEY, maxRetries: CLAUDE_MAX_RETRIES });
 
 /**
  * Para los modelos de salida estructurada (router, memoria, período del reporte): Claude contesta todo junto aunque

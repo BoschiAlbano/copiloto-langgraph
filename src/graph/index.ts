@@ -14,6 +14,10 @@ import { makeRouterNode, type RouterModel } from "./nodes/router.js";
 import { supervise } from "./nodes/supervisor.js";
 import { AGENT_NODE_NAMES } from "./plan.js";
 import { AgentState } from "./state.js";
+import { isTransient } from "../tools/retry.js";
+
+/** Reintentos de `load_memory` (fase 10): 3 intentos, ~200 y ~600 ms, solo ante fallas transitorias de la base. */
+export const LOAD_MEMORY_RETRY = { maxAttempts: 3, initialInterval: 200, backoffFactor: 3, maxInterval: 1000, retryOn: isTransient };
 
 export interface BuildGraphOptions {
   models: {
@@ -75,7 +79,8 @@ export function buildGraph({ models, tools, actions, reportSections, now, warn, 
   return (
     new StateGraph(AgentState)
       // Fase 8: cada turno empieza leyendo las memorias del negocio del Store.
-      .addNode("load_memory", makeLoadMemoryNode({ namespace: memoryNamespace }))
+      // Fase 10: leer la memoria es una lectura de la base que lanza su error: la reintenta LangGraph (retryPolicy).
+      .addNode("load_memory", makeLoadMemoryNode({ namespace: memoryNamespace }), { retryPolicy: LOAD_MEMORY_RETRY })
       .addNode("router", makeRouterNode(models.router, { warn }))
       // Devuelve un Command (actualización + destino): los destinos posibles se declaran en `ends`.
       .addNode("supervisor", supervise, { ends: [...AGENT_NODE_NAMES, END] })
