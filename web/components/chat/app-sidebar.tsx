@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { BookOpenIcon, BookmarkIcon, MessageCircleIcon, PauseCircleIcon, PlusIcon, ScissorsIcon, TriangleAlertIcon } from "lucide-react"
+import { BookOpenIcon, BookmarkIcon, MessageCircleIcon, PauseCircleIcon, PlusIcon, ScissorsIcon, TriangleAlertIcon, WaypointsIcon } from "lucide-react"
 import type { ThreadSummary } from "@copilot/graph/threads"
 import {
   Sidebar,
@@ -93,6 +93,12 @@ export function AppSidebar({
             <SidebarMenuButton onClick={onOpenMemory}>
               <BookmarkIcon />
               <span>Memoria del negocio</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton render={<Link href="/traces" />}>
+              <WaypointsIcon />
+              <span>Trazas</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>

@@ -16,7 +16,8 @@ import { threadIdSchema } from "../graph/thread-id.js";
 import { streamForkTurn, streamReplayTurn, TurnNotFoundError, type HistoryGraph } from "../graph/time-travel.js";
 import { conversationMessages, getStatus, type ThreadGraph, type ThreadSummary } from "../graph/threads.js";
 import { deleteMemory, listMemories, type MemoryBank } from "../memory/store.js";
-import type { TraceStore } from "../observability/store.js";
+import { isTraceId, type TraceStore, type TraceSummary } from "../observability/store.js";
+import type { Trace } from "../observability/trace-recorder.js";
 import type { UiEvent } from "./events.js";
 import { checkMutation, jsonError, readJson } from "./guard.js";
 import { ThreadLocks } from "./locks.js";
@@ -73,6 +74,12 @@ export interface BranchSwitchView {
 }
 
 export type { BranchTree };
+
+/** Lo que devuelve `GET /api/traces` (fase 11). */
+export interface TraceListView {
+  traces: TraceSummary[];
+}
+export type { Trace, TraceSummary };
 
 export interface ThreadView {
   threadId: string;
@@ -304,6 +311,40 @@ export function makeHandlers(deps: WebDeps) {
       } catch (error) {
         log(`[web] No se pudo leer el hilo ${id.data}`, error);
         return jsonError(500, "No se pudo leer el hilo.");
+      }
+    },
+
+    /** GET /api/traces?thread=<id>&errors=1&run=<id> → las trazas recientes (fase 11, R5) */
+    async listTraces(url: URL): Promise<Response> {
+      if (!deps.traces) return jsonError(503, "Las trazas no están disponibles.");
+      const thread = url.searchParams.get("thread");
+      if (thread && !parseId(thread).success) return jsonError(400, "El id del hilo no es válido.");
+      const run = url.searchParams.get("run");
+      if (run && !isTraceId(run)) return jsonError(400, "El id de la corrida no es válido.");
+      try {
+        const traces = await deps.traces.list({
+          ...(thread && { threadId: thread }),
+          ...(run && { evalRunId: run }),
+          errorsOnly: url.searchParams.get("errors") === "1",
+          limit: 100,
+        });
+        return Response.json({ traces } satisfies TraceListView);
+      } catch (error) {
+        log("[web] No se pudieron leer las trazas", error);
+        return jsonError(500, "No se pudieron leer las trazas.");
+      }
+    },
+
+    /** GET /api/traces/:id → una traza con su árbol de pasos */
+    async getTrace(id: string): Promise<Response> {
+      if (!deps.traces) return jsonError(503, "Las trazas no están disponibles.");
+      if (!isTraceId(id)) return jsonError(400, "El id de la traza no es válido.");
+      try {
+        const trace = await deps.traces.get(id);
+        return trace ? Response.json(trace) : jsonError(404, "No existe esa traza (las de más de 30 días se borran solas).");
+      } catch (error) {
+        log(`[web] No se pudo leer la traza ${id}`, error);
+        return jsonError(500, "No se pudo leer la traza.");
       }
     },
 

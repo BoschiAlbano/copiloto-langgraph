@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import {
   AlertCircleIcon,
   BotIcon,
@@ -14,12 +15,13 @@ import {
   RotateCcwIcon,
   RotateCwIcon,
   UserCheckIcon,
+  WaypointsIcon,
 } from "lucide-react"
 import type { ChatItem, TurnPart } from "@copilot/web/turn-view"
 import { AGENT_LABELS, INTENT_LABELS, SECTION_LABELS, describeRetryTarget, describeTool, isFallbackRoute } from "@copilot/web/turn-view"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
 import { Message, MessageContent, MessageHeader } from "@/components/ui/message"
 import {
@@ -256,7 +258,23 @@ export function TurnView({ turn, sessionCost, onRetry }: { turn: Turn; sessionCo
         </Alert>
       )}
       {turn.result && <TurnSummary result={turn.result} sessionCost={sessionCost} />}
-      {onRetry && <RetryButton onRetry={onRetry} />}
+      {(onRetry || turn.result?.traceId) && (
+        <div className="-mt-1 flex flex-wrap gap-1">
+          {onRetry && (
+            <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={onRetry}>
+              <RotateCcwIcon data-icon="inline-start" />
+              Reintentar
+            </Button>
+          )}
+          {/* Fase 11: lo que pasó adentro del turno (nodos, modelo, herramientas, reintentos). */}
+          {turn.result?.traceId && (
+            <Link href={`/traces/${turn.result.traceId}`} className={buttonVariants({ variant: "ghost", size: "xs", className: "text-muted-foreground" })}>
+              <WaypointsIcon data-icon="inline-start" />
+              Ver traza
+            </Link>
+          )}
+        </div>
+      )}
     </div>
   )
 }
