@@ -1,6 +1,6 @@
 # Extra: las ramas del hilo en la web
 
-Estado: **en curso** (spec aprobada; fuera del plan de fases, después de `fase-10`)
+Estado: **terminada** (fuera del plan de fases, después de `fase-10`)
 
 ## Objetivo
 Ver las ramas de un hilo y moverse entre ellas desde el chat web. Desde la fase 10, editar un mensaje o reintentar una respuesta **bifurca** el hilo: la versión anterior queda guardada en la historia, pero la web muestra solo la actual y no hay forma de volver. Con esto, un panel a la derecha del chat muestra todas las ramas y deja abrir cualquiera. La rama elegida pasa a ser la conversación del hilo: la que ves, la que ve el modelo y desde la que siguen los turnos nuevos.
@@ -67,10 +67,10 @@ Se corren con Playwright, el modelo real y la base real, como F4 a F6. El modelo
 | B1 | «¿Cuántos turnos hay mañana?»; editar a «¿Cuántos turnos hay pasado mañana?»; abrir el panel | Dos versiones: la 1 con «¿Cuántos turnos hay mañana?» y la 2, actual, con «… pasado mañana?» |
 | B2 | Desde B1, abrir la versión 1 | En pantalla queda la conversación original, con su respuesta. Al recargar, sigue esa. El panel marca la versión 1 como actual |
 | B3 | Desde B2, escribir «¿Qué te pregunté recién? Repetímelo textual.» | La respuesta trae «mañana» y no «pasado mañana»: el modelo ve la rama original. El panel sigue con dos versiones y la 1 crece |
-| B4 | «Agendá un corte para Julián Romero el \<martes\> a las 15 con Lucas.», aprobar, reintentar, rechazar la tarjeta nueva, y abrir la versión 1 | Las dos versiones empiezan con el mismo mensaje y se distinguen por su número. La 1 figura con «ejecutó una acción». Abrirla no ejecuta nada (el registro de acciones no cambia) y el turno de las 15 existe una sola vez |
+| B4 | «Agendá un corte para Julián Romero el \<martes\> a las 15 con Lucas.», aprobar, reintentar, y abrir la versión 1 | Al reintentar no aparece una tarjeta: el turno de las 15 ya existe (lo creó la versión 1) y el agente avisa que no se pudo. Las dos versiones empiezan con el mismo mensaje y se distinguen por su número; la 1 figura con «ejecutó una acción». Abrirla no ejecuta nada: el registro de acciones queda en una aprobación y el turno de las 15 existe una sola vez |
 
 ## Criterios de aceptación
-- [ ] CA1 (árbol): con modelos falsos, `listBranches` da las ramas correctas:
+- [x] CA1 (árbol): con modelos falsos, `listBranches` da las ramas correctas:
   - en un hilo sin bifurcaciones, una;
   - después de editar el primer mensaje, dos;
   - editando un mensaje del medio, la parte común aparece una sola vez;
@@ -78,16 +78,16 @@ Se corren con Playwright, el modelo real y la base real, como F4 a F6. El modelo
   - una punta incompleta se marca como tal;
   - una rama que ejecutó una acción se marca;
   - los números de versión siguen el orden de creación y no cambian al ir y volver; dos ramas con el mismo mensaje (un reintento) tienen números distintos.
-- [ ] CA2 (abrir): con modelos falsos, `switchBranch` deja el hilo con los mensajes de la rama elegida, sin llamar al modelo. El turno siguiente sigue desde esa rama: el modelo recibe solo sus mensajes. La rama que se dejó sigue en la historia.
-- [ ] CA3 (controles): abrir una rama responde:
+- [x] CA2 (abrir): con modelos falsos, `switchBranch` deja el hilo con los mensajes de la rama elegida, sin llamar al modelo. El turno siguiente sigue desde esa rama: el modelo recibe solo sus mensajes. La rama que se dejó sigue en la historia.
+- [x] CA3 (controles): abrir una rama responde:
   - 409 con una tarjeta, un turno a medias o un turno en curso;
   - 404 con un checkpoint de otro hilo, o uno que no es una punta;
   - 409 con una punta incompleta;
   - lo mismo que las otras rutas para un origen ajeno (403) y un cuerpo inválido (400).
-- [ ] CA4 (con la base): en `tests/writes`, ir de una rama a otra no repite ni deshace una acción aprobada. El registro de acciones y el stock no cambian al abrir una rama.
-- [ ] CA5 (navegador): B1 a B4 pasan. El panel no se desborda en el celular (390 px) y funciona en tema claro y oscuro.
-- [ ] CA6 (tiempo): `GET /branches` tarda menos de 500 ms en un hilo de 30 turnos con 5 ramas, con la base local. Si no, se mide y se decide (ver Riesgos).
-- [ ] CA7: pasan los tests de las fases 2 a 10, `npm test`, los typecheck, `npm run web:build` y las pruebas del navegador. La spec aparece en `/doc` y el README lo menciona.
+- [x] CA4 (con la base): en `tests/writes`, ir de una rama a otra no repite ni deshace una acción aprobada. El registro de acciones y el stock no cambian al abrir una rama.
+- [x] CA5 (navegador): B1 a B4 pasan. El panel no se desborda en el celular (390 px) y funciona en tema claro y oscuro.
+- [x] CA6 (tiempo): `GET /branches` tarda menos de 500 ms en un hilo de 30 turnos con 5 ramas, con la base local. Si no, se mide y se decide (ver Riesgos).
+- [x] CA7: pasan los tests de las fases 2 a 10, `npm test`, los typecheck, `npm run web:build` y las pruebas del navegador. La spec aparece en `/doc` y el README lo menciona.
 
 ## Fuera de alcance
 - Las ramas en la terminal: `npm run threads -- history` sigue igual.
@@ -223,3 +223,4 @@ Una tarea = un commit en la rama `dev/ramas-del-hilo`, que sale de `main` con la
 - **El servidor dice de qué versión salió cada una** (`parentVersion`, T4). El navegador no tiene la historia para calcularlo. Desde la bifurcación se siguen los hijos más viejos hasta una punta: esa es la rama madre, la que siguió por ahí sin separarse.
 - **La columna aparece desde 1280 px; en pantallas más angostas, el panel es una hoja lateral.** Entre 768 y 1280 px, con la barra de hilos abierta, una columna más dejaba la conversación demasiado angosta. En la hoja, abrir una versión la cierra sola.
 - **Al abrir una versión, la página se arma de nuevo desde el hilo**, como al recargar, pero conserva lo que gastó la sesión. Las marcas de «editado» de la sesión se pierden, porque el panel ya muestra las versiones. El aviso de lo que quedó hecho en la base usa el mismo lugar que los otros avisos, arriba de la entrada.
+- **B4 cambió al correrlo por primera vez** (T5). Se había congelado suponiendo que reintentar mostraba una tarjeta nueva, que se rechazaba. Con la base real, el agente vuelve a intentar agendar y la validación lo frena: Lucas ya tiene ese turno, porque lo creó la versión 1. No hay tarjeta ni registro nuevo (una propuesta que no pasa la validación no se registra). Es R7 en la práctica: la base no cambia de rama, y la versión 2 la ve igual. El escenario quedó así, sin el rechazo.

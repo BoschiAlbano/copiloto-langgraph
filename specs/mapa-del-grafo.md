@@ -551,6 +551,17 @@ gitGraph
 | Un agente que da vueltas | `… → agent → tools → … → agent → recover → END` | Corta en la 5.ª ronda, o en la segunda llamada idéntica; el hilo queda listo |
 | Editar o reintentar | `updateState(checkpoint, { messages: [mensaje] }, "__start__")` y `stream(null)` | La rama nueva es el estado del hilo; una acción ya aprobada no se ejecuta de nuevo (clave de la fase 5) |
 
+**Extra: las ramas del hilo** ([specs/ramas-del-hilo.md](ramas-del-hilo.md)). El grafo no cambia de forma. Cambia cómo se elige el estado actual: siempre es el último checkpoint, y para volver a una versión anterior alcanza con `updateState(punta, null)`. Eso crea una copia de esa punta, que pasa a ser el último checkpoint. La web lista las ramas a partir de la historia (`listBranches`): las puntas son los checkpoints sin hijos y las bifurcaciones, los que tienen más de uno.
+
+```mermaid
+flowchart LR
+    C1["entra el mensaje"] --> A1["versión 1"]
+    C1 --> B1["versión 2 (editar)"]
+    A1 --> A2["copia de la punta<br/>(abrir la versión 1)"]
+    classDef tip fill:#e8f5e9,stroke:#2e7d32
+    class A2,B1 tip
+```
+
 ---
 
 ## Próximas fases (planeado, aún no existe)

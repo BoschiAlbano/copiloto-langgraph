@@ -68,11 +68,12 @@ export function branchCases(today: Date = new Date()): BranchCase[] {
     },
     {
       id: "B4",
-      steps: [{ kind: "ask", text: book }, { kind: "approve" }, { kind: "retry" }, { kind: "reject" }, { kind: "open-branch", version: 1 }],
+      // Al reintentar no hay tarjeta: el turno ya existe (lo creó la versión 1; la base no cambia de rama).
+      steps: [{ kind: "ask", text: book }, { kind: "approve" }, { kind: "retry" }, { kind: "open-branch", version: 1 }],
       expected: {
         branches: 2,
         current: { version: 1, label: book },
-        loggedDecisions: ["approved", "rejected"],
+        loggedDecisions: ["approved"],
         executedOnceAt: `${tuesday.iso}T15:00`,
         markedExecuted: 1,
       },
