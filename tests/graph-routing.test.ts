@@ -194,11 +194,11 @@ describe("el router decide de nuevo en cada turno", () => {
 
 describe("fallas del router (CA7)", () => {
   it("una salida inválida sigue por query y avisa", async () => {
-    const t = setup([{ parsed: null }]);
+    const t = setup([{ parsed: null }, { parsed: null }]);
     const { path, state } = await runPath(t.graph, ask());
     expect(outer(path)).toEqual(["load_memory", "router", "supervisor", "query_graph", "supervisor"]);
     expect(state.intent).toBe("query");
-    expect(t.warn).toHaveBeenCalledOnce();
+    expect(t.warn).toHaveBeenCalledTimes(2); // fase 10: el segundo intento y el respaldo
   });
 
   it("un error de la API llega a quien invoca el grafo", async () => {

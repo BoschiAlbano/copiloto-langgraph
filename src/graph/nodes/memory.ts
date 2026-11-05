@@ -1,4 +1,5 @@
 import { readPrompt } from "../prompts/read.js";
+import { invokeWithCorrection, zodCheck } from "../structured.js";
 import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { LangGraphRunnableConfig } from "@langchain/langgraph";
 import { z } from "zod";
@@ -74,18 +75,23 @@ export function makeMemoryNode(model: MemoryModel | undefined, options: MemoryNo
 
     // El pedido: la parte que le toca (si el turno tiene varias) o el último mensaje de la persona.
     const request = sharedTask(state)?.request ?? state.messages.findLast((m) => HumanMessage.isInstance(m))?.text ?? "";
-    const result = await model.invoke([
-      new SystemMessage(memoryPrompt),
-      new HumanMessage(
-        `Memorias anotadas (id: tipo · texto):\n${current.map((m) => `${m.id}: ${m.kind} · ${m.text}`).join("\n") || "(ninguna)"}\n\nPedido de la persona: «${request}»`,
-      ),
-    ]);
-    const parsed = memoryOutputSchema.safeParse(result?.parsed);
-    if (!parsed.success) {
-      warn("[memoria] Salida inválida del modelo: no se hizo nada.");
+    // Fase 10: un segundo intento con la corrección si la salida no cumple el esquema; si tampoco, se informa.
+    const { value } = await invokeWithCorrection(
+      model,
+      [
+        new SystemMessage(memoryPrompt),
+        new HumanMessage(
+          `Memorias anotadas (id: tipo · texto):\n${current.map((m) => `${m.id}: ${m.kind} · ${m.text}`).join("\n") || "(ninguna)"}\n\nPedido de la persona: «${request}»`,
+        ),
+      ],
+      zodCheck(memoryOutputSchema),
+      { warn, label: "memoria" },
+    );
+    if (!value) {
+      warn("[memoria] Salida inválida del modelo también en el segundo intento: no se hizo nada.");
       return reply(MEMORY_NOT_UNDERSTOOD);
     }
-    const { operation, kind, text, memoryId } = parsed.data;
+    const { operation, kind, text, memoryId } = value;
 
     if (operation === "list") return reply(describeMemories(current), current);
 

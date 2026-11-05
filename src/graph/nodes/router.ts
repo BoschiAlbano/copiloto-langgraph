@@ -1,6 +1,8 @@
 import { readPrompt } from "../prompts/read.js";
 import { HumanMessage, SystemMessage, type BaseMessage } from "@langchain/core/messages";
+import { routerOutputSchema } from "../intents.js";
 import { normalizePlan, PLAN_FALLBACK_REASON, type TaskState } from "../plan.js";
+import { invokeWithCorrection, zodCheck } from "../structured.js";
 import { buildRouterContext, formatTranscript } from "../router-context.js";
 
 /**
@@ -30,14 +32,17 @@ export function makeRouterNode(
   const warn = options.warn ?? ((message: string) => console.warn(message));
   return async (state: Pick<TaskState, "messages">) => {
     const transcript = formatTranscript(buildRouterContext(state.messages));
-    const result = await model.invoke([
-      new SystemMessage(routerPrompt),
-      new HumanMessage(`Conversación reciente:\n${transcript}\n\nClasificá el último mensaje de la persona.`),
-    ]);
+    // Fase 10: si la salida no cumple el esquema, un segundo intento con la corrección antes del respaldo.
+    const { value } = await invokeWithCorrection(
+      model,
+      [new SystemMessage(routerPrompt), new HumanMessage(`Conversación reciente:\n${transcript}\n\nClasificá el último mensaje de la persona.`)],
+      zodCheck(routerOutputSchema),
+      { warn, label: "router" },
+    );
 
     const last = state.messages.findLast((m) => HumanMessage.isInstance(m))?.text ?? "";
-    const { plan, intent, reason, fallback } = normalizePlan(result?.parsed, last);
-    if (fallback) warn("[router] Salida inválida del modelo: se usa la ruta 'query' como respaldo.");
+    const { plan, intent, reason, fallback } = normalizePlan(value, last);
+    if (fallback) warn("[router] Salida inválida del modelo también en el segundo intento: se usa la ruta 'query' como respaldo.");
     return { intent, intentReason: reason, plan };
   };
 }

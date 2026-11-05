@@ -68,7 +68,7 @@ describe("plan_report", () => {
       const { report } = await run(ask());
       expect([report.dateFrom, report.dateTo], JSON.stringify(parsed)).toEqual(["2026-10-26", "2026-11-01"]);
       expect(report.notice, JSON.stringify(parsed)).toBe(PLAN_FALLBACK_NOTICE);
-      expect(warn).toHaveBeenCalledOnce();
+      expect(warn).toHaveBeenCalledTimes(2); // fase 10: el segundo intento y el respaldo
     }
   });
 

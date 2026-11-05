@@ -111,7 +111,9 @@ describe("nodo memory", () => {
       expect(update.messages[0]!.text).toBe(MEMORY_NOT_UNDERSTOOD);
     }
     expect(await listMemories(b)).toEqual([]);
-    expect(warn).toHaveBeenCalledTimes(2); // la tercera es válida para el esquema, pero le falta el texto
+    // Fase 10: las dos primeras avisan dos veces (el segundo intento y el «no se hizo nada»); la tercera es válida para
+    // el esquema, pero le falta el texto (eso lo decide el código, no es una salida mal formada).
+    expect(warn).toHaveBeenCalledTimes(4);
   });
 
   it("sin Store o sin modelo, la memoria no está disponible", async () => {

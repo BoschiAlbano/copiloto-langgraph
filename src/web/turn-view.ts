@@ -266,3 +266,10 @@ export function describeTool(name: string, args: Record<string, unknown>): { tit
     .join(" · ");
   return { title: TOOL_LABELS[name] ?? name, detail };
 }
+
+/**
+ * ¿La ruta es el respaldo del router (fase 10: ni el primer intento ni la corrección dieron una salida válida)? Se
+ * compara por el texto del motivo (`PLAN_FALLBACK_REASON` en src/graph/plan.ts), para no traer código del grafo al
+ * navegador.
+ */
+export const isFallbackRoute = (reason: string | undefined) => Boolean(reason?.startsWith("Respaldo:"));

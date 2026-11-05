@@ -15,7 +15,7 @@ import {
   UserCheckIcon,
 } from "lucide-react"
 import type { ChatItem, TurnPart } from "@copilot/web/turn-view"
-import { AGENT_LABELS, INTENT_LABELS, SECTION_LABELS, describeRetryTarget, describeTool } from "@copilot/web/turn-view"
+import { AGENT_LABELS, INTENT_LABELS, SECTION_LABELS, describeRetryTarget, describeTool, isFallbackRoute } from "@copilot/web/turn-view"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
@@ -62,7 +62,10 @@ function ActivityLine({ part, turnRunning }: { part: Activity; turnRunning: bool
             <TraceIcon>
               <GitBranchIcon />
             </TraceIcon>
-            <TraceTitle>Plan: {steps}</TraceTitle>
+            <TraceTitle>
+              Plan: {steps}
+              {isFallbackRoute(part.reason) && " (respaldo)"}
+            </TraceTitle>
           </TraceLine>
         </TraceCollapsibleTrigger>
         <TraceCollapsibleContent>

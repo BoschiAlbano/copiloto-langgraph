@@ -79,14 +79,17 @@ describe("nodo router", () => {
     for (const [label, result] of invalid) {
       it(label, async () => {
         const warn = vi.fn();
-        const { model } = fakeRouter(result);
+        const { model, calls } = fakeRouter(result);
         const update = await makeRouterNode(model, { warn })(state([new HumanMessage("x")]));
         expect(update).toEqual({
           intent: "query",
           intentReason: ROUTER_FALLBACK_REASON,
           plan: { tasks: [{ id: "1", intent: "query", request: "x", status: "pending" }] },
         });
-        expect(warn).toHaveBeenCalledOnce();
+        // Fase 10: antes del respaldo, un segundo intento con la corrección (y un aviso por cada uno).
+        expect(calls).toHaveLength(2);
+        expect(calls[1]!.at(-1)!.text).toMatch(/Tu respuesta anterior no cumplió el formato pedido/);
+        expect(warn).toHaveBeenCalledTimes(2);
       });
     }
   });

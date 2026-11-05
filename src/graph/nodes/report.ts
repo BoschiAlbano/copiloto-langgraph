@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readPrompt } from "../prompts/read.js";
+import { invokeWithCorrection } from "../structured.js";
 import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { Send } from "@langchain/langgraph";
 import { describeNow } from "../../tools/dates.js";
@@ -54,20 +55,30 @@ export function makePlanReportNode(
     // En un pedido de varias partes (fase 7), el planificador recibe además la parte que es el reporte.
     const task = sharedTask(state);
     const request = task ? `\n\nLa parte del pedido que es el reporte: «${task.request}».` : "";
-    const result = await model.invoke([
-      new SystemMessage(renderPlanPrompt(now())),
-      new HumanMessage(`Conversación reciente:\n${transcript}${request}\n\nElegí el período del último pedido de reporte de la persona.`),
-    ]);
-
-    // Un error real de la API no se atrapa (sube hasta la terminal). Una salida inválida sí: semana actual y aviso.
+    // Un error real de la API no se atrapa (sube hasta la terminal). Una salida inválida sí: fase 10, un segundo
+    // intento con la corrección; si tampoco sirve, semana actual y aviso.
+    const at = now();
+    const { value } = await invokeWithCorrection(
+      model,
+      [
+        new SystemMessage(renderPlanPrompt(at)),
+        new HumanMessage(`Conversación reciente:\n${transcript}${request}\n\nElegí el período del último pedido de reporte de la persona.`),
+      ],
+      (parsed) => {
+        const period = toPeriod(parsed);
+        if (!period) return { ok: false, error: "el período no cumple el esquema (kind y, si hace falta, las fechas)" };
+        const resolved = tryResolve(period, at);
+        if (!resolved) return { ok: false, error: "las fechas del período no son válidas (formato AAAA-MM-DD, la primera antes que la segunda, dentro del rango permitido)" };
+        return { ok: true, value: resolved };
+      },
+      { warn, label: "reporte" },
+    );
     let notice: string | undefined;
-    let period = toPeriod(result?.parsed);
-    let resolved = period && tryResolve(period, now());
-    if (!period || !resolved) {
-      warn("[reporte] No se pudo interpretar el período: se usa la semana actual.");
+    let resolved = value;
+    if (!resolved) {
+      warn("[reporte] No se pudo interpretar el período tampoco en el segundo intento: se usa la semana actual.");
       notice = PLAN_FALLBACK_NOTICE;
-      period = DEFAULT_PERIOD;
-      resolved = resolvePeriod(period, now());
+      resolved = resolvePeriod(DEFAULT_PERIOD, at);
     }
     return { report: { id: newId(), dateFrom: resolved.dateFrom, dateTo: resolved.dateTo, label: resolved.label, ...(notice && { notice }) } };
   };

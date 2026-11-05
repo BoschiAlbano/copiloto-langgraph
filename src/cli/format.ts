@@ -1,3 +1,4 @@
+import { isFallbackRoute } from "../web/turn-view.js";
 import { estimateCostUsd } from "../config/pricing.js";
 import type { ApprovalRequest } from "../graph/approval.js";
 import type { TurnResult } from "../graph/run-turn.js";
@@ -46,7 +47,9 @@ export function describeRoute(route: TurnResult["route"]): string[] {
   if (!route.intent) return [];
   const tasks = route.tasks ?? [];
   const head = tasks.length > 1 ? tasks.map((t) => t.intent).join(" → ") : route.intent;
-  const lines = [`[ruta] ${head}: ${route.reason ?? "sin motivo"}`];
+  // Fase 10: si el router no dio una salida válida ni en el segundo intento, se usó el respaldo: se dice.
+  const fallback = isFallbackRoute(route.reason) ? " (respaldo)" : "";
+  const lines = [`[ruta] ${head}${fallback}: ${route.reason ?? "sin motivo"}`];
   if (tasks.length > 1) tasks.forEach((t, i) => lines.push(`       ${i + 1}. ${t.intent}: ${t.request}`));
   return lines;
 }
