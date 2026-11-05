@@ -3,7 +3,9 @@ import { loadEnv } from "../config/env.js";
 import type { ApprovalRequest, HumanDecision } from "../graph/approval.js";
 import { createAgent } from "../graph/create-agent.js";
 import { AGENT_RECURSION_LIMIT } from "../graph/limits.js";
-import { continueTurn, resumeTurn, runTurn, type TurnResult } from "../graph/run-turn.js";
+import { streamContinueTurn, streamResumeTurn, streamRunTurn, type TurnResult } from "../graph/run-turn.js";
+import type { UiEvent } from "../web/events.js";
+import { describeRetryTarget } from "../web/turn-view.js";
 import { newThreadId, parseThreadId } from "../graph/thread-id.js";
 import { conversationMessages, getStatus } from "../graph/threads.js";
 import { costOfUsage, mergeUsage, type ModelUsage } from "../graph/usage-tracker.js";
@@ -107,6 +109,7 @@ function show(turn: TurnResult, withRoute: boolean) {
   session = mergeUsage(session, summary.usage);
   if (withRoute) describeRoute(route).forEach((line, i) => console.log(dim(`${i === 0 ? "\n" : ""}  ${line}`)));
   for (const call of summary.toolCalls) console.log(dim(`  [herramienta] ${call.name} ${JSON.stringify(call.args)}`));
+  for (const name of new Set(summary.failedTools)) console.log(dim(`  [herramienta] ${name}: no se pudo consultar`));
   if (turn.report) console.log(dim(`  ${describeReportStatus(turn.report)}`));
   // La memoria se muestra si había alguna o si el turno la tocó (anotar, listar o borrar).
   if (turn.memoryCount > 0 || route.tasks?.some((t) => t.intent === "memory")) console.log(dim(`  ${describeMemoryStatus(turn.memoryCount)}`));
@@ -143,7 +146,19 @@ async function attempt(run: () => Promise<TurnResult>, withRoute = false) {
   else if (pending) console.error('El turno quedó a medias. Escribí "/continuar" para reintentarlo desde donde se cortó.\n');
 }
 
-const decide = (decision: HumanDecision) => attempt(() => resumeTurn(agent, threadId, decision));
+/**
+ * Corre un turno mostrando lo que conviene ver mientras pasa (fase 10: los reintentos de la base) y devuelve su
+ * resultado. Lo demás se muestra al final, como siempre.
+ */
+async function live(events: AsyncIterable<UiEvent>): Promise<TurnResult> {
+  for await (const event of events) {
+    if (event.type === "retry") console.log(dim(`  [reintento] ${describeRetryTarget(event.target)}: intento ${event.attempt} de ${event.attempts}`));
+    if (event.type === "done") return event.result;
+  }
+  throw new Error("El turno terminó sin resultado.");
+}
+
+const decide = (decision: HumanDecision) => attempt(() => live(streamResumeTurn(agent, threadId, decision)));
 
 // La entrada se abre recién ahora, después de leer el hilo: si se hubiera abierto antes, las líneas
 // que llegan mientras se espera a la base (entrada por tubería) se perderían sin oyente.
@@ -187,12 +202,12 @@ for await (const line of rl) {
       editing = true;
     } else await decide(decision);
   } else if (input.toLowerCase() === "/continuar") {
-    if (pending) await attempt(() => continueTurn(agent, threadId));
+    if (pending) await attempt(() => live(streamContinueTurn(agent, threadId)));
     else console.log("No hay ningún turno a medias en este hilo.\n");
   } else if (input && pending) {
     console.log('Este hilo tiene un turno a medias. Escribí "/continuar" para terminarlo antes de seguir.\n');
   } else if (input) {
-    await attempt(() => runTurn(agent, threadId, input), true);
+    await attempt(() => live(streamRunTurn(agent, threadId, input)), true);
   }
 
   if (!closed) {

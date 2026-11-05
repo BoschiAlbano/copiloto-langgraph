@@ -76,6 +76,11 @@ export function TurnSummary({ result, sessionCost }: { result: TurnResult; sessi
         </Trace>
         <div className="mt-3 flex flex-wrap gap-2">
           <Badge variant="secondary">{result.memoryCount === 1 ? "1 memoria en contexto" : `${result.memoryCount} memorias en contexto`}</Badge>
+          {[...new Set(result.summary.failedTools ?? [])].map((name) => (
+            <Badge key={name} variant="destructive">
+              No se pudo consultar: {describeTool(name, {}).title.toLowerCase()}
+            </Badge>
+          ))}
           {sections.map(([section, status]) => (
             <Badge key={section} variant={status === "ok" ? "outline" : "destructive"}>
               {SECTION_LABELS[section as keyof typeof SECTION_LABELS]}: {status === "ok" ? "ok" : status === "error" ? "falló" : "falta"}

@@ -16,6 +16,8 @@ export interface TurnSummary {
   toolCalls: { name: string; args: Record<string, unknown> }[];
   /** Acciones decididas en el turno (ejecutadas, rechazadas o fallidas), con el texto del código. */
   actions: ActionResult[];
+  /** Herramientas de consulta que terminaron con error en el turno (fase 10: después de sus reintentos). */
+  failedTools: string[];
   inputTokens: number;
   outputTokens: number;
   /** Desglose por modelo, tomado del UsageTracker. */
@@ -29,15 +31,18 @@ export interface TurnSummary {
 export function summarizeTurn(newMessages: BaseMessage[], usage: ModelUsage[]): TurnSummary {
   const toolCalls: TurnSummary["toolCalls"] = [];
   const actions: ActionResult[] = [];
+  const failedTools: string[] = [];
   for (const message of newMessages) {
     if (AIMessage.isInstance(message)) {
       for (const call of message.tool_calls ?? []) toolCalls.push({ name: call.name, args: call.args });
     } else if (ToolMessage.isInstance(message) && message.name && isActionName(message.name)) {
       actions.push({ tool: message.name, ok: message.status !== "error", message: message.text });
+    } else if (ToolMessage.isInstance(message) && message.status === "error") {
+      failedTools.push(message.name ?? "herramienta");
     }
   }
   const total = totalUsage(usage);
-  return { modelCalls: total.calls, toolCalls, actions, inputTokens: total.inputTokens, outputTokens: total.outputTokens, usage };
+  return { modelCalls: total.calls, toolCalls, actions, failedTools, inputTokens: total.inputTokens, outputTokens: total.outputTokens, usage };
 }
 
 /** Un agente que intervino en el turno (fase 7), con lo que hizo y lo que costó. */

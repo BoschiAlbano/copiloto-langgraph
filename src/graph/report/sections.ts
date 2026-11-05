@@ -1,4 +1,5 @@
 import type { Db } from "../../db/client.js";
+import { announceRetry } from "../../tools/retry-events.js";
 import { withRetry } from "../../tools/retry.js";
 import { explainError } from "../../tools/safe.js";
 import { getSalesSummary } from "../../tools/get-sales-summary.js";
@@ -54,7 +55,10 @@ export async function runSection(section: Section, reportId: string, range: Sect
     // Fase 10: una falla transitoria de la base se reintenta (como en las herramientas); si no se arregla, la sección
     // sale con error y el reporte dice cuál falta (fase 6).
     const data = await withRetry(() => RUNNERS[section](db, range), {
-      onRetry: (info) => console.warn(`[reintento] sección ${section} ${info.attempt} de ${info.attempts}`),
+      onRetry: (info) => {
+        console.warn(`[reintento] sección ${section} ${info.attempt} de ${info.attempts}`);
+        announceRetry({ target: `section:${section}`, attempt: info.attempt, attempts: info.attempts });
+      },
     });
     return { reportId, section, status: "ok", data };
   } catch (error) {

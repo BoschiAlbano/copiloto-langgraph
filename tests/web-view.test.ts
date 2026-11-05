@@ -11,7 +11,7 @@ const view = (over: Partial<ThreadView> = {}): ThreadView => ({ threadId: "h", e
 const result = (over: Partial<TurnResult> = {}): TurnResult => ({
   reply: "",
   route: {},
-  summary: { modelCalls: 1, toolCalls: [], actions: [], inputTokens: 100, outputTokens: 10, usage: [{ model: "claude-haiku-5-5", calls: 1, inputTokens: 100, outputTokens: 10 }] },
+  summary: { modelCalls: 1, toolCalls: [], actions: [], failedTools: [], inputTokens: 100, outputTokens: 10, usage: [{ model: "claude-haiku-5-5", calls: 1, inputTokens: 100, outputTokens: 10 }] },
   agents: [],
   coordination: [],
   memoryCount: 0,

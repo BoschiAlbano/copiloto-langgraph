@@ -41,7 +41,18 @@ export const SECTION_LABELS: Record<Section, string> = { sales: "Ventas", appoin
 export type TurnPart =
   | { type: "route"; reason?: string; tasks: { intent: Intent; request: string }[] }
   | { type: "agent"; agent: AgentNode; status: "running" | "done" }
-  | { type: "tool"; id: string; agent: AgentNode; name: string; args: Record<string, unknown>; status: "running" | "done" | "error" }
+  | {
+      type: "tool";
+      id: string;
+      agent: AgentNode;
+      name: string;
+      args: Record<string, unknown>;
+      status: "running" | "done" | "error";
+      /** El último reintento avisado (fase 10): el intento que venía y el total. */
+      retry?: { attempt: number; attempts: number };
+    }
+  /** Un reintento de algo que no es una herramienta a la vista (por ejemplo, una sección del reporte). */
+  | { type: "retry"; target: string; attempt: number; attempts: number }
   /** Un texto del copiloto. `streaming`: todavía llegan tokens (es un borrador). */
   | { type: "text"; id: string; author: Author; kind: "reply" | "step" | "notice"; text: string; streaming: boolean }
   | { type: "action"; tool: string; ok: boolean; message: string }
@@ -174,6 +185,23 @@ function applyToParts(parts: TurnPart[], event: UiEvent): TurnPart[] {
       return [...parts, { type: "action", tool: event.tool, ok: event.ok, message: event.message }];
     case "report_section":
       return [...parts, { type: "section", section: event.section, status: event.status }];
+    case "retry": {
+      // Se marca en la línea de su herramienta (la que está corriendo con ese nombre); si no hay, una línea propia.
+      const retry = { attempt: event.attempt, attempts: event.attempts };
+      const at = parts.findLastIndex((p) => p.type === "tool" && p.name === event.target && p.status === "running");
+      if (at !== -1) {
+        const next = [...parts];
+        next[at] = { ...(parts[at] as Extract<TurnPart, { type: "tool" }>), retry };
+        return next;
+      }
+      const own = parts.findLastIndex((p) => p.type === "retry" && p.target === event.target);
+      if (own !== -1) {
+        const next = [...parts];
+        next[own] = { type: "retry", target: event.target, ...retry };
+        return next;
+      }
+      return [...parts, { type: "retry", target: event.target, ...retry }];
+    }
     default:
       return parts;
   }
@@ -218,6 +246,15 @@ export function applyEvent(state: PageState, event: UiEvent): PageState {
 export function connectionLost(state: PageState): PageState {
   if (state.status !== "running") return state;
   return applyEvent(state, { type: "error", message: "Se cortó la conexión con el servidor. Si el turno quedó a medias, podés continuarlo.", pending: true });
+}
+
+/** Cómo se nombra lo que se reintenta: una herramienta o una sección del reporte (`section:stock`). */
+export function describeRetryTarget(target: string): string {
+  if (target.startsWith("section:")) {
+    const section = target.slice("section:".length) as Section;
+    return `la sección ${(SECTION_LABELS[section] ?? section).toLowerCase()}`;
+  }
+  return (TOOL_LABELS[target] ?? target).toLowerCase();
 }
 
 /** Texto corto de una herramienta con sus argumentos, para la línea del paso. */

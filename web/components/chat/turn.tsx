@@ -11,10 +11,11 @@ import {
   FileBarChartIcon,
   GitBranchIcon,
   MessageSquareTextIcon,
+  RotateCwIcon,
   UserCheckIcon,
 } from "lucide-react"
 import type { ChatItem, TurnPart } from "@copilot/web/turn-view"
-import { AGENT_LABELS, INTENT_LABELS, SECTION_LABELS, describeTool } from "@copilot/web/turn-view"
+import { AGENT_LABELS, INTENT_LABELS, SECTION_LABELS, describeRetryTarget, describeTool } from "@copilot/web/turn-view"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
@@ -33,10 +34,10 @@ import { Markdown } from "./markdown"
 import { TurnSummary } from "./turn-summary"
 
 type Turn = Extract<ChatItem, { kind: "turn" }>
-type Activity = Extract<TurnPart, { type: "route" | "agent" | "tool" | "section" | "text" }>
+type Activity = Extract<TurnPart, { type: "route" | "agent" | "tool" | "section" | "retry" | "text" }>
 
 const isActivity = (p: TurnPart): p is Activity =>
-  p.type === "route" || p.type === "agent" || p.type === "tool" || p.type === "section" || (p.type === "text" && p.kind === "step")
+  p.type === "route" || p.type === "agent" || p.type === "tool" || p.type === "section" || p.type === "retry" || (p.type === "text" && p.kind === "step")
 
 /** Agrupa las partes: los pasos seguidos van en un mismo `Trace`; una respuesta, una acción o un aviso lo cortan. */
 function groups(parts: TurnPart[]): ({ kind: "trace"; parts: Activity[] } | { kind: "part"; part: TurnPart })[] {
@@ -93,13 +94,40 @@ function ActivityLine({ part, turnRunning }: { part: Activity; turnRunning: bool
   if (part.type === "tool") {
     const { title, detail } = describeTool(part.name, part.args)
     const status = part.status === "running" ? "running" : part.status === "error" ? "error" : undefined
+    const retries = part.retry ? part.retry.attempt - 1 : 0
+    const verb =
+      part.status === "running"
+        ? part.retry
+          ? `Reintentando (${part.retry.attempt} de ${part.retry.attempts})`
+          : "Consultando"
+        : part.status === "error"
+          ? "No se pudo consultar"
+          : "Consultó"
     return (
       <TraceLine status={status}>
-        <TraceIcon>{part.status === "error" ? <CircleXIcon /> : <DatabaseIcon />}</TraceIcon>
+        <TraceIcon>{part.status === "error" ? <CircleXIcon /> : part.retry ? <RotateCwIcon /> : <DatabaseIcon />}</TraceIcon>
         <TraceTitle>
-          {part.status === "running" ? "Consultando" : part.status === "error" ? "Falló" : "Consultó"}: {title}
+          {verb}: {title}
         </TraceTitle>
+        {part.status !== "running" && retries > 0 && (
+          <TraceDescription>
+            {part.status === "error" ? `tras ${retries} ${retries === 1 ? "reintento" : "reintentos"}` : `al ${retries + 1}.º intento`}
+          </TraceDescription>
+        )}
         {detail && <TraceDescription className="hidden min-w-0 truncate sm:block">{detail}</TraceDescription>}
+      </TraceLine>
+    )
+  }
+  if (part.type === "retry") {
+    const running = turnRunning
+    return (
+      <TraceLine status={running ? "running" : undefined}>
+        <TraceIcon>
+          <RotateCwIcon />
+        </TraceIcon>
+        <TraceTitle>
+          {running ? "Reintentando" : "Se reintentó"} {describeRetryTarget(part.target)} ({part.attempt} de {part.attempts})
+        </TraceTitle>
       </TraceLine>
     )
   }

@@ -46,8 +46,11 @@ export function turnReply(messages: BaseMessage[]): string {
     .join("\n\n");
 }
 
-/** Lo que se le pasa a `graph.stream` en cada turno: los tres modos, también dentro de los subgrafos (fase 9). */
-const STREAM_MODES = ["values", "updates", "messages"] as const;
+/**
+ * Los modos de `graph.stream` en cada turno, también dentro de los subgrafos: los tres de la fase 9 y `custom` (fase 10),
+ * por donde las lecturas de la base avisan sus reintentos.
+ */
+const STREAM_MODES = ["values", "updates", "messages", "custom"] as const;
 
 /**
  * Corre el grafo con `graph.stream` y produce los eventos de la interfaz a medida que pasan (fase 9). El último evento

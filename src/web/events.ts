@@ -6,6 +6,7 @@ import { AGENT_NODE_NAMES, type AgentNode } from "../graph/plan.js";
 import { SECTIONS, type ReportPart } from "../graph/report/state.js";
 import type { TurnResult } from "../graph/run-turn.js";
 import { isActionName } from "../tools/actions/schemas.js";
+import type { RetryNotice } from "../tools/retry-events.js";
 
 // Los eventos de la interfaz (fase 9, R11): lo que el servidor le manda al navegador mientras corre un turno.
 // `toUiEvents` traduce cada dato de `graph.stream` (modos values, updates y messages, con subgrafos) a estos eventos.
@@ -38,6 +39,11 @@ export const uiEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("tool_end"), id: z.string(), name: z.string(), ok: z.boolean() }),
   /** El resultado de una acción decidida, con el texto que armó el código. */
   z.object({ type: z.literal("action_result"), tool: z.string(), ok: z.boolean(), message: z.string() }),
+  /**
+   * Una lectura de la base falló de forma transitoria y se va a reintentar (fase 10, modo `custom`). `target` es la
+   * herramienta (`getStockLevels`) o la sección del reporte (`section:stock`); `attempt`, el intento que viene.
+   */
+  z.object({ type: z.literal("retry"), agent: agentSchema.optional(), target: z.string(), attempt: z.number().int(), attempts: z.number().int() }),
   /** Una sección de un reporte terminó. */
   z.object({ type: z.literal("report_section"), section: z.enum(SECTIONS), status: z.enum(["ok", "error"]) }),
   /** El grafo se pausó: una acción espera la decisión de la persona (la tarjeta). */
@@ -157,6 +163,12 @@ function subgraphUpdate(agent: AgentNode, node: string, update: Update): UiEvent
 
 /** Traduce un dato de `graph.stream` a los eventos de la interfaz (puede no dar ninguno). */
 export function toUiEvents([namespace, mode, data]: StreamChunk): UiEvent[] {
+  if (mode === "custom") {
+    const notice = data as Partial<RetryNotice> | undefined;
+    if (notice?.kind !== "retry" || typeof notice.target !== "string") return [];
+    const graph = graphNameOf(namespace);
+    return [{ type: "retry", ...(isAgent(graph) && { agent: graph }), target: notice.target, attempt: Number(notice.attempt), attempts: Number(notice.attempts) }];
+  }
   if (mode === "messages") {
     const [chunk, metadata] = data as [BaseMessage, Record<string, unknown>];
     if (!AIMessageChunk.isInstance(chunk)) return [];
