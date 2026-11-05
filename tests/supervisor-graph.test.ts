@@ -193,7 +193,7 @@ describe("pedido mixto con reporte", () => {
     });
     await runTurn({ graph }, "hilo-accion-reporte", "registrá la venta y armame el resumen");
     const done = await resumeTurn({ graph }, "hilo-accion-reporte", { decision: "approve" });
-    expect(done.report).toEqual({ label: "semana del 26/10 al 01/11", sections: { sales: "error", appointments: "error", stock: "error" } });
+    expect(done.report).toEqual({ label: "semana del 26/10 al 01/11", dateFrom: "2026-10-26", dateTo: "2026-11-01", sections: { sales: "error", appointments: "error", stock: "error" } });
     expect(done.reply).toMatch(/^Venta registrada\.\n\nReporte · semana/);
   });
 });

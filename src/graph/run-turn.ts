@@ -29,8 +29,8 @@ export interface TurnResult {
   memoryCount: number;
   /** El grafo se pausó: hay una acción propuesta esperando la decisión (`resumeTurn`). */
   awaiting?: ApprovalRequest;
-  /** Si el turno fue un reporte: el período y cómo salió cada sección. */
-  report?: { label: string; notice?: string; sections: Record<Section, "ok" | "error" | "missing"> };
+  /** Si el turno fue un reporte: el período (desde la fase 11, también sus fechas) y cómo salió cada sección. */
+  report?: { label: string; dateFrom?: string; dateTo?: string; notice?: string; sections: Record<Section, "ok" | "error" | "missing"> };
   /** La traza de este turno (fase 11), si se guardan trazas. */
   traceId?: string;
 }
@@ -145,7 +145,7 @@ type StateOf = {
   intent: Intent;
   intentReason: string;
   plan: Plan;
-  report: { label: string; notice?: string; sections?: Record<Section, "ok" | "error" | "missing"> };
+  report: { label: string; dateFrom?: string; dateTo?: string; notice?: string; sections?: Record<Section, "ok" | "error" | "missing"> };
   businessContext: unknown[];
 };
 
@@ -176,7 +176,14 @@ async function turnResult(
     ...(awaiting && { awaiting }),
     // `state.report` queda en el hilo después de un reporte: solo cuenta si ESTE turno tuvo un reporte terminado.
     ...(!awaiting && plan?.tasks.some((t) => t.intent === "report") && report?.sections
-      ? { report: { label: report.label, ...(report.notice && { notice: report.notice }), sections: report.sections } }
+      ? {
+          report: {
+            label: report.label,
+            ...(report.dateFrom && { dateFrom: report.dateFrom, dateTo: report.dateTo }),
+            ...(report.notice && { notice: report.notice }),
+            sections: report.sections,
+          },
+        }
       : {}),
   };
 }

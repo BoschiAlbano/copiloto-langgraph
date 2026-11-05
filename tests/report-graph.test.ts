@@ -110,7 +110,7 @@ describe("CA1: las tres secciones corren a la vez", () => {
     const t = setup({ fail: ["stock"], checkpointer: saver });
     const turn = await runTurn({ graph: t.graph }, "hilo-reporte", "Armame el resumen de la semana.");
     expect(turn.route.intent).toBe("report");
-    expect(turn.report).toEqual({ label: "semana del 26/10 al 01/11", sections: { sales: "ok", appointments: "ok", stock: "error" } });
+    expect(turn.report).toEqual({ label: "semana del 26/10 al 01/11", dateFrom: "2026-10-26", dateTo: "2026-11-01", sections: { sales: "ok", appointments: "ok", stock: "error" } });
     expect(turn.summary.toolCalls).toEqual([]);
 
     // Un turno de charla en el mismo hilo ya no trae reporte, aunque el estado todavía lo guarde.
