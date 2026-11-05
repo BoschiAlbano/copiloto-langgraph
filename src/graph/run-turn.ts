@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { AIMessage, HumanMessage, type BaseMessage } from "@langchain/core/messages";
 import { Command } from "@langchain/langgraph";
 import type { ApprovalRequest, HumanDecision } from "./approval.js";
@@ -61,11 +62,19 @@ const STREAM_MODES = ["values", "updates", "messages", "custom"] as const;
  *   herramientas que se usaron antes de la pausa.
  * @param signal corta el turno (por ejemplo, si se cierra la página). El hilo queda a medias, como tras una falla.
  */
-async function* streamInvoke(agent: TurnAgent, threadId: string, input: TurnInput, already: number, signal?: AbortSignal): AsyncGenerator<UiEvent> {
+export async function* streamInvoke(
+  agent: TurnAgent,
+  threadId: string,
+  input: TurnInput,
+  already: number,
+  signal?: AbortSignal,
+  /** Fase 10: desde qué checkpoint correr (una rama nueva del viaje en el tiempo); sin esto, desde el último. */
+  checkpoint?: { checkpoint_id?: string; checkpoint_ns?: string },
+): AsyncGenerator<UiEvent> {
   const tracker = new UsageTracker();
   // El tipo de `Command` del grafo compilado exige los nombres de nodo exactos; acá solo se usa `resume`.
   const stream = await agent.graph.stream(input as never, {
-    configurable: { thread_id: parseThreadId(threadId) },
+    configurable: { thread_id: parseThreadId(threadId), ...checkpoint },
     recursionLimit: AGENT_RECURSION_LIMIT,
     callbacks: [tracker],
     streamMode: [...STREAM_MODES],
@@ -129,7 +138,7 @@ async function turnResult(
 }
 
 /** Consume los eventos de un turno y devuelve su resultado (lo que necesita la terminal). */
-async function collect(events: AsyncIterable<UiEvent>): Promise<TurnResult> {
+export async function collectTurn(events: AsyncIterable<UiEvent>): Promise<TurnResult> {
   for await (const event of events) if (event.type === "done") return event.result;
   throw new Error("El turno terminó sin resultado.");
 }
@@ -167,12 +176,16 @@ export async function* streamRunTurn(agent: TurnAgent, threadId: string, input: 
   const status = await getStatus(agent.graph, threadId);
   if (status.awaiting) throw new ThreadAwaitingApprovalError(threadId, status.awaiting);
   if (status.pending) throw new ThreadPendingError(threadId, status.next);
+  // Fase 10: el mensaje lleva un id propio y el turno lo avisa primero (`turn`): así la web puede editarlo o
+  // reintentarlo después, aunque lo haya escrito en esta misma sesión.
+  const message = new HumanMessage({ content: input, id: randomUUID() });
+  yield { type: "turn", kind: "new", humanMessageId: message.id! };
   // El mensaje de la persona es el primero de este turno: lo que ya había más ese mensaje no cuenta como "nuevo".
-  yield* streamInvoke(agent, threadId, { messages: [new HumanMessage(input)] }, status.messages.length + 1, signal);
+  yield* streamInvoke(agent, threadId, { messages: [message] }, status.messages.length + 1, signal);
 }
 
 export function runTurn(agent: TurnAgent, threadId: string, input: string): Promise<TurnResult> {
-  return collect(streamRunTurn(agent, threadId, input));
+  return collectTurn(streamRunTurn(agent, threadId, input));
 }
 
 /**
@@ -186,7 +199,7 @@ export async function* streamContinueTurn(agent: TurnAgent, threadId: string, si
 }
 
 export function continueTurn(agent: TurnAgent, threadId: string): Promise<TurnResult> {
-  return collect(streamContinueTurn(agent, threadId));
+  return collectTurn(streamContinueTurn(agent, threadId));
 }
 
 /** Se intentó decidir sobre un hilo que no espera ninguna decisión. */
@@ -208,5 +221,5 @@ export async function* streamResumeTurn(agent: TurnAgent, threadId: string, deci
 }
 
 export function resumeTurn(agent: TurnAgent, threadId: string, decision: HumanDecision): Promise<TurnResult> {
-  return collect(streamResumeTurn(agent, threadId, decision));
+  return collectTurn(streamResumeTurn(agent, threadId, decision));
 }

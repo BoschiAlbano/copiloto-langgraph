@@ -135,7 +135,10 @@ describe("corte y «Continuar» (CA8, CA4)", () => {
     const { handlers, graph } = setup({ model: new StreamingChatModel([new AIMessage(LONG), new AIMessage(LONG)], { delayMs: 15 }) });
     const response = await handlers.postMessage(post("/api/threads/h/messages", { text: "contame" }), "h");
     const reader = response.body!.getReader();
-    await reader.read(); // llegó algo
+    // Llegó parte de la respuesta. Desde la fase 10, el primer evento (`turn`) sale antes de que el turno empiece a
+    // guardarse: cortar ahí es como no haber enviado, y el hilo no queda a medias.
+    const decoder = new TextDecoder();
+    for (let seen = ""; !seen.includes(`"type":"token"`); ) seen += decoder.decode((await reader.read()).value);
     await reader.cancel(); // la persona recargó la página
     await vi.waitFor(async () => expect((await getStatus(graph, "h")).pending).toBe(true));
 

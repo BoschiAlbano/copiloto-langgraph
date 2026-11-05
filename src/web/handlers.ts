@@ -4,6 +4,7 @@ import { humanDecisionSchema, type ApprovalRequest } from "../graph/approval.js"
 import { AGENT_RECURSION_LIMIT } from "../graph/limits.js";
 import { NothingToDecideError, streamContinueTurn, streamResumeTurn, streamRunTurn, ThreadPendingError, type TurnAgent } from "../graph/run-turn.js";
 import { threadIdSchema } from "../graph/thread-id.js";
+import { streamForkTurn, streamReplayTurn, TurnNotFoundError, type HistoryGraph } from "../graph/time-travel.js";
 import { conversationMessages, getStatus, type ThreadGraph, type ThreadSummary } from "../graph/threads.js";
 import { deleteMemory, listMemories, type MemoryBank } from "../memory/store.js";
 import type { UiEvent } from "./events.js";
@@ -21,10 +22,14 @@ const messageBodySchema = z.strictObject({
   text: z.string().trim().min(1, "El mensaje está vacío.").max(MAX_MESSAGE_CHARS, `El mensaje supera los ${MAX_MESSAGE_CHARS} caracteres.`),
 });
 const memoryIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
+/** El id de un mensaje de la persona (los pone LangGraph o el servidor: uuid u otros ids cortos). */
+const messageIdSchema = z.string().regex(/^[A-Za-z0-9_.:-]{1,128}$/, "El id del mensaje no es válido.");
+const editBodySchema = z.strictObject({ messageId: messageIdSchema, text: messageBodySchema.shape.text });
+const retryBodySchema = z.strictObject({ messageId: messageIdSchema });
 
 export interface WebDeps {
-  /** El grafo compilado, con checkpointer. */
-  graph: TurnAgent["graph"] & ThreadGraph;
+  /** El grafo compilado, con checkpointer (y su historia, para editar y reintentar). */
+  graph: TurnAgent["graph"] & ThreadGraph & HistoryGraph;
   /** Los hilos recientes (con Postgres en la app; en los tests, lo que haga falta). */
   listThreads: () => Promise<ThreadSummary[]>;
   /** La memoria de largo plazo. Sin ella, el panel de memorias dice que no está disponible. */
@@ -60,7 +65,7 @@ export interface ThreadView {
 export function publicErrorMessage(error: unknown): string {
   const e = error as Error;
   if (e?.name === "GraphRecursionError") return `El agente superó el límite de ${AGENT_RECURSION_LIMIT} pasos y se detuvo.`;
-  if (error instanceof ThreadPendingError || error instanceof NothingToDecideError) return e.message;
+  if (error instanceof ThreadPendingError || error instanceof NothingToDecideError || error instanceof TurnNotFoundError) return e.message;
   return "No se pudo completar el pedido por un problema del sistema. Si el turno quedó a medias, podés continuarlo.";
 }
 
@@ -91,6 +96,34 @@ export function makeHandlers(deps: WebDeps) {
       }
     }
     return sseResponse(guarded(), { onCancel: () => cut.abort(), onClose: release });
+  }
+
+  /**
+   * Editar o reintentar (fase 10): los mismos controles que un mensaje nuevo (origen, JSON, ids, una tarjeta o un turno
+   * a medias o en curso → 409), más que el mensaje esté en la conversación actual (404 si no).
+   */
+  async function branch<T>(
+    request: Request,
+    rawId: string,
+    schema: z.ZodType<T>,
+    run: (threadId: string, body: T, signal: AbortSignal) => AsyncGenerator<UiEvent>,
+  ): Promise<Response> {
+    const rejected = checkMutation(request);
+    if (rejected) return rejected;
+    const id = parseId(rawId);
+    if (!id.success) return jsonError(400, id.error.issues[0]!.message);
+    const body = await readJson(request);
+    if (!body.ok) return body.response;
+    const parsed = schema.safeParse(body.value);
+    if (!parsed.success) return jsonError(400, parsed.error.issues[0]!.message);
+    const status = await getStatus(deps.graph, id.data);
+    if (status.awaiting) return jsonError(409, "Este hilo espera tu decisión sobre una acción: resolvela antes de editar o reintentar.");
+    if (status.pending) return jsonError(409, "Este hilo tiene un turno a medias: continualo antes de editar o reintentar.");
+    const messageId = (parsed.data as { messageId: string }).messageId;
+    if (!status.messages.some((m) => HumanMessage.isInstance(m) && m.id === messageId)) {
+      return jsonError(404, "Ese mensaje no está en la conversación actual del hilo.");
+    }
+    return stream(request, id.data, (signal) => run(id.data, parsed.data, signal));
   }
 
   return {
@@ -172,6 +205,16 @@ export function makeHandlers(deps: WebDeps) {
       if (status.awaiting) return jsonError(409, "Este hilo espera tu decisión sobre una acción, no un «Continuar».");
       if (!status.pending) return jsonError(409, "No hay ningún turno a medias en este hilo.");
       return stream(request, id.data, (signal) => streamContinueTurn({ graph: deps.graph }, id.data, signal));
+    },
+
+    /** POST /api/threads/:id/edit  { messageId, text } → SSE (fase 10: editar y volver a preguntar) */
+    async postEdit(request: Request, rawId: string): Promise<Response> {
+      return branch(request, rawId, editBodySchema, (id, body, signal) => streamForkTurn({ graph: deps.graph }, id, body.messageId, body.text, signal));
+    },
+
+    /** POST /api/threads/:id/retry  { messageId } → SSE (fase 10: reintentar el turno de ese mensaje) */
+    async postRetry(request: Request, rawId: string): Promise<Response> {
+      return branch(request, rawId, retryBodySchema, (id, body, signal) => streamReplayTurn({ graph: deps.graph }, id, body.messageId, signal));
     },
 
     /** GET /api/memories */

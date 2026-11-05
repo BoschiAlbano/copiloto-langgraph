@@ -190,6 +190,9 @@ export function makeExecuteActionNode(runner: Pick<ActionRunner, "execute">, opt
           tool_call_id: action.toolCallId,
           name: action.tool,
           status: outcome.status === "failed" ? "error" : "success",
+          // Fase 10: si la acción se ejecutó de verdad (no rechazada ni fallida). Editar o reintentar un turno no deshace
+          // lo que ya se escribió en la base, y la web lo avisa.
+          artifact: { outcome: outcome.status },
         }),
       ],
       pendingAction: null,

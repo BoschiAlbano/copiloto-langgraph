@@ -18,6 +18,17 @@ const authorSchema = z.union([agentSchema, z.literal("supervisor")]);
 export type Author = z.infer<typeof authorSchema>;
 
 export const uiEventSchema = z.discriminatedUnion("type", [
+  /**
+   * Empieza un turno (fase 10): el id del mensaje de la persona, para poder editarlo o reintentarlo después. `edit` y
+   * `retry` son ramas nuevas del hilo; `replacedActions`, las acciones que la rama anterior ya había ejecutado (no se
+   * deshacen).
+   */
+  z.object({
+    type: z.literal("turn"),
+    kind: z.enum(["new", "edit", "retry"]),
+    humanMessageId: z.string(),
+    replacedActions: z.array(z.string()).optional(),
+  }),
   /** Las partes del pedido, en el orden en que se hacen (el plan del router). */
   z.object({
     type: z.literal("route"),
