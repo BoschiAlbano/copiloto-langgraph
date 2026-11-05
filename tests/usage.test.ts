@@ -94,6 +94,7 @@ describe("summarizeTurn", () => {
       modelCalls: 3, // el router también cuenta aunque no deje mensajes
       toolCalls: [{ name: "listAppointments", args: { dateFrom: "2026-10-28" } }],
       actions: [],
+      failedTools: [], // fase 10: ninguna herramienta terminó con error
       inputTokens: 3300,
       outputTokens: 80,
       usage,
