@@ -1,3 +1,4 @@
+import type { StructuredToolInterface } from "@langchain/core/tools";
 import type { Env } from "../config/env.js";
 import { createPrisma } from "../db/client.js";
 import { ACTION_DEFINITIONS } from "../tools/actions/definitions.js";
@@ -22,11 +23,17 @@ export type Agent = ReturnType<typeof createAgent>;
  * - hilos: el estado se guarda en Postgres con el rol copilot_checkpointer;
  * - memoria de largo plazo (fase 8): un Store de Postgres, mismo rol y esquema que los hilos. `memoryNamespace` es para los
  *   tests con el modelo real, que usan uno propio y no tocan las memorias del negocio.
+ * - `wrapReadTools` (fase 10) es para los escenarios de fallas con el modelo real: envuelve las herramientas de
+ *   lectura reales con una que falla a propósito (`failing` en tests/helpers). La app no lo usa.
  */
-export function createAgent(env: Env, options: { memoryNamespace?: string[] } = {}) {
+export function createAgent(
+  env: Env,
+  options: { memoryNamespace?: string[]; wrapReadTools?: (tools: StructuredToolInterface[]) => StructuredToolInterface[] } = {},
+) {
   const db = createPrisma(env.DATABASE_URL_READ);
   const actionsDb = createPrisma(env.DATABASE_URL_ACTIONS);
-  const tools = makeReadTools(db);
+  const readTools: StructuredToolInterface[] = makeReadTools(db);
+  const tools = options.wrapReadTools ? options.wrapReadTools(readTools) : readTools;
   const checkpointing = createCheckpointing(env.DATABASE_URL_CHECKPOINTS);
   // La memoria de largo plazo (fase 8): el Store, en el mismo esquema y con el mismo rol que los hilos.
   const store = createMemoryStore(env.DATABASE_URL_CHECKPOINTS);
