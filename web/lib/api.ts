@@ -1,5 +1,5 @@
 import type { UiEvent } from "@copilot/web/events"
-import type { ThreadView } from "@copilot/web/handlers"
+import type { BranchSwitchView, BranchTree, ThreadView } from "@copilot/web/handlers"
 import { readSse } from "@copilot/web/sse"
 import type { ThreadSummary } from "@copilot/graph/threads"
 import type { Memory } from "@copilot/memory/store"
@@ -32,7 +32,15 @@ async function getJson<T>(path: string): Promise<T> {
 
 export const fetchThread = (threadId: string) => getJson<ThreadView>(`/api/threads/${threadId}`)
 export const fetchThreads = () => getJson<{ threads: ThreadSummary[] }>("/api/threads").then((r) => r.threads)
+export const fetchBranches = (threadId: string) => getJson<BranchTree>(`/api/threads/${threadId}/branches`)
 export const fetchMemories = () => getJson<{ memories: Memory[] }>("/api/memories").then((r) => r.memories)
+
+/** Abre una versión de la conversación (specs/ramas-del-hilo.md): no corre ningún turno, responde con el hilo. */
+export async function openBranch(threadId: string, checkpointId: string): Promise<BranchSwitchView> {
+  const response = await fetch(`/api/threads/${threadId}/branch`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ checkpointId }) })
+  if (!response.ok) throw await errorOf(response)
+  return (await response.json()) as BranchSwitchView
+}
 
 export async function removeMemory(id: string): Promise<void> {
   const response = await fetch(`/api/memories/${id}`, { method: "DELETE", headers: JSON_HEADERS, body: "{}" })

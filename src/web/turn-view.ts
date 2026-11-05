@@ -1,6 +1,7 @@
 // Lo que se ve en la página del chat (fase 9): un reductor puro, `applyEvent(estado, evento)`. Los componentes de
 // React solo dibujan este estado. Este archivo lo usa el NAVEGADOR: solo importa tipos (nada de LangChain ni de la base).
 import type { ApprovalRequest, HumanDecision } from "../graph/approval.js";
+import type { Branch as ThreadBranch, BranchTree } from "../graph/branches.js";
 import type { Intent } from "../graph/intents.js";
 import type { AgentNode } from "../graph/plan.js";
 import type { Section } from "../graph/report/state.js";
@@ -334,3 +335,46 @@ export function describeTool(name: string, args: Record<string, unknown>): { tit
  * navegador.
  */
 export const isFallbackRoute = (reason: string | undefined) => Boolean(reason?.startsWith("Respaldo:"));
+
+// Las versiones de la conversación (specs/ramas-del-hilo.md). En la pantalla se llaman «versiones»; en el código, ramas.
+
+/** Una fila del panel: la rama y cuánta sangría lleva (las que salen de otra van debajo de ella). */
+export interface BranchRow {
+  branch: ThreadBranch;
+  depth: number;
+}
+
+/** El árbol como filas, en orden: cada versión y, debajo, las que salieron de ella (por número). */
+export function branchRows(tree: BranchTree): BranchRow[] {
+  const known = new Set(tree.branches.map((b) => b.version));
+  const children = new Map<number | undefined, ThreadBranch[]>();
+  for (const branch of tree.branches) {
+    // Sin madre conocida (no debería pasar), va arriba de todo en vez de perderse.
+    const parent = branch.parentVersion !== undefined && known.has(branch.parentVersion) ? branch.parentVersion : undefined;
+    children.set(parent, [...(children.get(parent) ?? []), branch]);
+  }
+  const rows: BranchRow[] = [];
+  const visit = (parent: number | undefined, depth: number) => {
+    for (const branch of [...(children.get(parent) ?? [])].sort((a, b) => a.version - b.version)) {
+      rows.push({ branch, depth });
+      visit(branch.version, depth + 1);
+    }
+  };
+  visit(undefined, 0);
+  return rows;
+}
+
+/** Por qué no se puede abrir otra versión ahora (igual que editar o reintentar), o nada si se puede. */
+export function branchBlocker(status: PageStatus): string | undefined {
+  if (status === "running") return "Esperá a que termine la respuesta para cambiar de versión.";
+  if (status === "awaiting") return "Decidí sobre la acción pendiente antes de cambiar de versión.";
+  if (status === "pending") return "Continuá el turno que quedó a medias antes de cambiar de versión.";
+  return undefined;
+}
+
+/** El aviso al dejar una versión que ejecutó algo (R7): lo escrito en la base no se deshace. */
+export function leftActionsNotice(actions: string[]): string | undefined {
+  if (actions.length === 0) return undefined;
+  const what = actions.map((a) => `«${a}»`).join(" ");
+  return `Lo que hizo la versión que dejaste sigue en la base: ${what}`;
+}

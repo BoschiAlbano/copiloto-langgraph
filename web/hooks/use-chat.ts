@@ -7,12 +7,13 @@ import {
   applyEvent,
   connectionLost,
   fromThreadView,
+  leftActionsNotice,
   startContinuation,
   startFork,
   startMessage,
   type PageState,
 } from "@copilot/web/turn-view"
-import { ApiError, streamTurn } from "@/lib/api"
+import { ApiError, openBranch as postBranch, streamTurn } from "@/lib/api"
 
 /**
  * El estado de la página de un hilo y lo que la persona puede hacer: mandar un mensaje, decidir sobre la tarjeta,
@@ -65,7 +66,26 @@ export function useChat(initial: ThreadView, { onTurnEnd }: { onTurnEnd?: () => 
     [run, threadPath],
   )
   const retry = React.useCallback((messageId: string) => run((s) => startFork(s, messageId), `${threadPath}/retry`, { messageId }), [run, threadPath])
+  // Abrir otra versión (ramas del hilo): no corre ningún turno. La página se arma de nuevo con el hilo como queda, igual
+  // que al recargar, y conserva lo que gastó la sesión. Devuelve true si se abrió.
+  const openBranch = React.useCallback(
+    async (checkpointId: string) => {
+      const previous = stateRef.current
+      if (previous.status !== "ready") return false
+      try {
+        const view = await postBranch(initial.threadId, checkpointId)
+        setState((s) => ({ ...fromThreadView(view.thread), session: s.session, notice: leftActionsNotice(view.leftActions) }))
+        return true
+      } catch (error) {
+        setState((s) => ({ ...s, notice: error instanceof Error ? error.message : "No se pudo cambiar de versión." }))
+        return false
+      } finally {
+        onTurnEnd?.()
+      }
+    },
+    [initial.threadId, onTurnEnd],
+  )
   const dismissNotice = React.useCallback(() => setState((s) => ({ ...s, notice: undefined })), [])
 
-  return { state, send, decide, resume, edit, retry, dismissNotice }
+  return { state, send, decide, resume, edit, retry, openBranch, dismissNotice }
 }

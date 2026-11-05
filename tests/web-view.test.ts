@@ -3,7 +3,20 @@ import type { ApprovalRequest } from "../src/graph/approval.js";
 import type { TurnResult } from "../src/graph/run-turn.js";
 import type { UiEvent } from "../src/web/events.js";
 import type { ThreadView } from "../src/web/handlers.js";
-import { applyEvent, connectionLost, fromThreadView, retryTargets, startContinuation, startFork, startMessage, type PageState } from "../src/web/turn-view.js";
+import type { Branch } from "../src/graph/branches.js";
+import {
+  applyEvent,
+  branchBlocker,
+  branchRows,
+  connectionLost,
+  fromThreadView,
+  leftActionsNotice,
+  retryTargets,
+  startContinuation,
+  startFork,
+  startMessage,
+  type PageState,
+} from "../src/web/turn-view.js";
 
 // Fase 9 (T4): el reductor de la página. Decide qué se ve; los componentes solo lo dibujan.
 
@@ -211,5 +224,50 @@ describe("editar y reintentar (fase 10, R10 a R13)", () => {
     expect(retryTargets(applyEvent(sent, { type: "turn", kind: "new", humanMessageId: "m7" }).items).get(6)).toBe("m7");
     // Un mensaje sin respuesta (por ejemplo, un error antes de empezar) no tiene «Reintentar».
     expect(retryTargets([{ kind: "human", id: "a", text: "x", messageId: "a" }]).size).toBe(0);
+  });
+});
+
+describe("las versiones de la conversación (ramas del hilo)", () => {
+  const branch = (version: number, parentVersion?: number, over: Partial<Branch> = {}): Branch => ({
+    tipId: `t${version}`,
+    version,
+    ...(parentVersion !== undefined && { parentVersion, forkFromId: `f${version}` }),
+    label: `mensaje ${version}`,
+    messageCount: 2,
+    current: false,
+    complete: true,
+    executedActions: [],
+    ...over,
+  });
+
+  it("las filas: cada versión con las que salieron de ella debajo, por número, con su sangría", () => {
+    // 1 ─┬─ 2 ── 4
+    //    └─ 3
+    const rows = branchRows({ threadId: "h", branches: [branch(4, 2), branch(1), branch(3, 1), branch(2, 1)] });
+    expect(rows.map((r) => [r.branch.version, r.depth])).toEqual([
+      [1, 0],
+      [2, 1],
+      [4, 2],
+      [3, 1],
+    ]);
+  });
+
+  it("una versión cuya madre no está en la lista va arriba de todo, en vez de perderse", () => {
+    expect(branchRows({ threadId: "h", branches: [branch(1), branch(2, 9)] }).map((r) => [r.branch.version, r.depth])).toEqual([
+      [1, 0],
+      [2, 0],
+    ]);
+  });
+
+  it("solo se puede cambiar de versión con el hilo listo", () => {
+    expect(branchBlocker("ready")).toBeUndefined();
+    expect(branchBlocker("running")).toMatch(/termine/);
+    expect(branchBlocker("awaiting")).toMatch(/acción pendiente/);
+    expect(branchBlocker("pending")).toMatch(/a medias/);
+  });
+
+  it("dejar una versión que ejecutó algo lo avisa; si no, nada", () => {
+    expect(leftActionsNotice([])).toBeUndefined();
+    expect(leftActionsNotice(["Sumé 3 a Cera mate."])).toBe("Lo que hizo la versión que dejaste sigue en la base: «Sumé 3 a Cera mate.»");
   });
 });

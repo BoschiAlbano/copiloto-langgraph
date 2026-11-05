@@ -21,6 +21,8 @@ export interface Branch {
   version: number;
   /** El checkpoint del que salió (no lo tiene la original). */
   forkFromId?: string;
+  /** La versión de la que salió (no lo tiene la original): para dibujar el árbol. */
+  parentVersion?: number;
   /** El mensaje de la persona con el que se separa de las otras. */
   label: string;
   /** Mensajes de la conversación (de la persona y del copiloto, como en la barra de hilos). */
@@ -115,7 +117,16 @@ function buildTree(history: ThreadHistory, threadId: string): BranchTree {
     })
     // El número de versión sale de cuándo se creó el primer checkpoint propio de cada rama: no cambia al ir y volver.
     .sort((a, b) => byCreation(a.first, b.first))
-    .map(({ branch }, index) => ({ ...branch, version: index + 1 }));
+    .map(({ branch }, index): Branch => ({ ...branch, version: index + 1 }));
+  // La rama madre de cada una: desde su bifurcación, la que sigue por los hijos más viejos hasta una punta (la que
+  // continúa por ahí sin haberse separado).
+  const versionOfTip = new Map(branches.map((b) => [b.tipId, b.version]));
+  for (const branch of branches) {
+    if (!branch.forkFromId) continue;
+    let id = branch.forkFromId;
+    for (let next = history.children.get(id)?.[0]; next; next = history.children.get(id)?.[0]) id = next;
+    branch.parentVersion = versionOfTip.get(id);
+  }
   return { threadId, branches };
 }
 

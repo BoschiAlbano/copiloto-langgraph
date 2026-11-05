@@ -75,6 +75,17 @@ describe("listBranches (CA1)", () => {
     const history = await readHistory(graph, "h");
     const v2 = (await listBranches(graph, "h")).branches[1]!;
     expect(history.byId.get(v2.forkFromId!)!.values.messages!.map((m) => m.text)).toEqual(["uno", "eco 1: uno"]);
+    expect(v2.parentVersion).toBe(1);
+
+    // Una rama que sale de la 2 (no de la original): su madre es la 2.
+    const fourth = await say(graph, "cuatro");
+    await edit(graph, fourth, "CUATRO");
+    const tree = (await listBranches(graph, "h")).branches;
+    expect(tree.map((b) => [b.version, b.label, b.parentVersion])).toEqual([
+      [1, "dos", undefined],
+      [2, "DOS", 1],
+      [3, "CUATRO", 2],
+    ]);
   });
 
   it("reintentar dos veces: tres versiones con el mismo mensaje y números distintos", async () => {
