@@ -1,6 +1,6 @@
 # Fase 10: Errores, reintentos y viaje en el tiempo
 
-Estado: **en curso** (spec aprobada; el viaje en el tiempo va en la web)
+Estado: **terminada** (etiqueta `fase-10`; el viaje en el tiempo va en la web)
 
 ## Objetivo
 Que el copiloto se recupere de fallas sin quedar en loops ni inventar resultados: que reintente lo que vale la pena reintentar, que corte a tiempo a un agente que da vueltas, que corrija o informe una salida mal formada del modelo, y que se pueda volver a correr un turno desde un punto anterior del hilo, igual o con otro mensaje.
@@ -95,7 +95,7 @@ Se guardan en `evals/resilience-cases.ts` **antes** de escribir los prompts. Las
 F4, F5 y F6 se corren en el navegador con Playwright, como los de la fase 9.
 
 ## Criterios de aceptación
-- [ ] CA1 (reintentos): una falla simulada de la base se reintenta y se informa a la persona.
+- [x] CA1 (reintentos): una falla simulada de la base se reintenta y se informa a la persona.
   - Con modelos falsos:
     - una herramienta que falla 2 veces de forma transitoria contesta al tercer intento;
     - una falla no transitoria no se reintenta;
@@ -103,25 +103,25 @@ F4, F5 y F6 se corren en el navegador con Playwright, como los de la fase 9.
     - una sección de reporte se recupera igual que una herramienta.
   - Los eventos `retry` llegan en orden por el modo `custom` y se ven en la web y en la terminal.
   - Con el modelo real: F1, F2 y F3 en tres corridas seguidas.
-- [ ] CA2 (tope y loops): el agente respeta un tope de iteraciones y no entra en loops. Con un modelo falso que pide herramientas sin parar:
+- [x] CA2 (tope y loops): el agente respeta un tope de iteraciones y no entra en loops. Con un modelo falso que pide herramientas sin parar:
   - el agente de consultas y el de acciones pasan a `recover` después de 4 rondas, sin `GraphRecursionError`;
   - el hilo termina listo (no a medias) y la respuesta la arma el código;
   - una llamada repetida corta antes.
-- [ ] CA3 (salidas mal formadas): una salida mal formada del modelo se corrige o se reporta. Con modelos falsos, para el router, la memoria y el período del reporte:
+- [x] CA3 (salidas mal formadas): una salida mal formada del modelo se corrige o se reporta. Con modelos falsos, para el router, la memoria y el período del reporte:
   - una salida inválida y después una válida se corrige (una llamada más);
   - dos inválidas usan el respaldo y se ve «(respaldo)».
-- [ ] CA4 (viaje en el tiempo): se puede re-ejecutar desde un checkpoint anterior con otros parámetros, desde la web.
+- [x] CA4 (viaje en el tiempo): se puede re-ejecutar desde un checkpoint anterior con otros parámetros, desde la web.
   - Con modelos falsos:
     - editar y reintentar crean una rama nueva, la original sigue en la historia y el estado del hilo es la rama nueva;
     - el turno se encuentra por el id del mensaje, también en un hilo de varios turnos;
     - se rechazan (409) con una tarjeta, un turno a medias o un turno en curso, y con los controles de la fase 9;
     - volver a pasar por una acción aprobada no la ejecuta otra vez (en `tests/writes`, con la base).
   - En el navegador, con el modelo real: F4, F5 y F6. Recargar después de editar muestra la rama nueva.
-- [ ] CA5 (costo): se mide:
+- [x] CA5 (costo): se mide:
   - cuánto suma un reintento de la base (cero tokens: se reintenta la herramienta, no el modelo);
   - cuánto suma corregir una salida del router (una llamada más, solo cuando falla);
   - cuánto se ahorra al cortar un loop en 4 rondas en vez de llegar al límite de recursión.
-- [ ] CA6: todos los tests de las fases 2 a 9 pasan, y también los que agrega esta fase. Además pasan `npm test`, los typecheck, `npm run web:build` y las pruebas del navegador. El mapa del grafo suma `recover` y la documentación queda al día (README, plan y `/doc`, que la toma sola).
+- [x] CA6: todos los tests de las fases 2 a 9 pasan, y también los que agrega esta fase. Además pasan `npm test`, los typecheck, `npm run web:build` y las pruebas del navegador. El mapa del grafo suma `recover` y la documentación queda al día (README, plan y `/doc`, que la toma sola).
 
 ## Fuera de alcance
 - Navegar entre versiones de un mensaje editado (el «‹ 1/2 ›» de otros chats): la versión anterior queda en la historia del hilo, pero la web muestra solo la actual.
@@ -269,7 +269,7 @@ gitGraph
     commit id: "respuesta 2"
 ```
 
-`updateState` sobre el final del turno 1 (`asNode: "__start__"`) crea el checkpoint de la rama nueva. `stream(null, …)` la corre, y ese pasa a ser el estado del hilo. La rama original sigue en `history`. Si un turno de la rama nueva propone una acción, aparece su tarjeta como siempre.
+`updateState` sobre el checkpoint en que entró el mensaje del turno 2 (`asNode: "__start__"`) crea el checkpoint de la rama nueva (ver la decisión de T6: así también se puede editar el primer mensaje). `stream(null, …)` la corre, y ese pasa a ser el estado del hilo. La rama original sigue en `history`. Si un turno de la rama nueva propone una acción, aparece su tarjeta como siempre.
 
 **6. «Editar» de punta a punta, en la web**
 
@@ -334,3 +334,36 @@ Una tarea = un commit en la rama `dev/fase-10`.
 - **F1 a F3 pasaron en tres corridas seguidas.** En F2 y F3 el copiloto dice que no pudo consultar porque la base no responde y que no quiere dar un número inventado. En F1 da la cantidad real.
 - **«En vivo», en F6, es que la respuesta nueva se ve mientras la página dice «Respondiendo».** No se cuentan pedazos: una respuesta corta («Cera mate 31 U/S») llega en dos.
 - **El test de corte de la fase 9 falló una vez** en la primera corrida completa del navegador: al recargar, el hilo quedó «Listo» con solo el mensaje de la persona. Pasó solo dos veces y en la corrida completa siguiente (15 de 15). Con modelos falsos, cortar un reporte en cualquier punto deja el hilo a medias, como corresponde. No se pudo reproducir; queda anotado.
+
+## Medición (CA5)
+Haiku 5.5 en todos los roles, el mismo día y con los mismos datos. El script corrió el mismo pedido dos veces sano y dos veces con dos fallas de la base (`failing`). Para el router, la primera salida se arruinó a propósito, así que el segundo intento es una llamada real con la corrección.
+
+| Qué | Llamadas al modelo | Tokens (entrada → salida) | Costo | Tiempo |
+| --- | --- | --- | --- | --- |
+| «¿Cuántos turnos hay mañana?», sano | 3 | 11.722 a 11.723 → 293 a 302 | US$ 0,00132 | 3,5 a 3,8 s |
+| el mismo, con 2 fallas de `listAppointments` | 3 | 11.722 a 11.723 → 294 | US$ 0,00132 | 4,1 a 4,4 s |
+| Router, «¿Cuántos turnos hay mañana?»: primer intento | 1 | 2.891 → 109 | US$ 0,00034 | |
+| la corrección (segundo intento) | +1 | 3.079 → 108 | +US$ 0,00036 | |
+| Router, una acción y una consulta en el mismo pedido: primer intento | 1 | 2.913 → 149 | US$ 0,00037 | |
+| la corrección | +1 | 3.139 → 146 | +US$ 0,00039 | |
+
+- **Un reintento de la base no cuesta tokens.** Se reintenta la herramienta, no el modelo: las mismas 3 llamadas y los mismos tokens. Suma unos 0,6 s, que son las dos esperas (~200 y ~600 ms, con azar).
+- **Corregir una salida del router es una llamada más**, solo cuando falla. Cuesta casi lo mismo que la primera: lleva el mismo pedido y además lo que contestó y por qué no sirve (unos 200 tokens de entrada más). Si no falla, no cuesta nada. En las evaluaciones de la fase 3, el router no dio nunca una salida inválida con el modelo real: en la práctica, el costo es casi siempre cero.
+- **Cortar un loop en 4 rondas.** Esto es una **estimación**, no una medición: un modelo real no da vueltas a pedido. Se calculó con lo medido arriba: la primera llamada del agente de consultas lleva 4.416 tokens de entrada. Se supuso que cada ronda suma unos 400 (el resultado de una herramienta típica).
+
+  | Caso | Antes (límite de recursión) | Ahora |
+  | --- | --- | --- |
+  | Herramientas distintas sin parar | 6 llamadas (~32.000 tokens de entrada, ~US$ 0,0034), `GraphRecursionError` y el hilo a medias; cada «Continuar» repetía el loop (otras 6) | 5 llamadas (~26.000, ~US$ 0,0028): la 5.ª va a `recover` sin ejecutar nada, y el turno termina |
+  | La misma llamada repetida | igual: 6 llamadas y el hilo a medias | 2 llamadas (~9.200, ~US$ 0,0010): la segunda idéntica ya corta |
+
+  Lo que más se ahorra no está en el primer turno, que baja de 6 llamadas a 5, sino en lo que venía después: antes, el hilo trabado invitaba a «Continuar», y cada intento costaba otras 6 llamadas. Con Sonnet como agente, las cifras se multiplican por ~10.
+
+## Qué aprendí
+- **Reintentar es una decisión sobre la falla, no sobre el código.** Una conexión cortada se arregla repitiendo; un dato inválido, un permiso o un bug dan lo mismo cada vez. La lista de lo transitorio (`isTransient`) es lo más importante de los reintentos, y lleva sus propios tests.
+- **Dónde reintentar depende de quién ve el error.** La `retryPolicy` de LangGraph reintenta un nodo que **lanza**. Las herramientas y las secciones convierten su error en un mensaje, así que el nodo nunca falla y la política no se activaría: hay que reintentar adentro (`withRetry`). Y las llamadas al modelo ya las reintentaba LangChain, no el SDK, 6 veces por defecto.
+- **El modo `custom` deja que un nodo hable mientras trabaja.** Dentro del `ToolNode`, el escritor llega en la configuración de la herramienta (`config.writer`), no por `getWriter()`. Con eso, «Reintentando (2 de 3)» se ve en vivo en la web y en la terminal, sin estado extra.
+- **El límite de recursión es una barrera, no un control.** Corta con un error y deja el hilo a medias, y «Continuar» vuelve a entrar en el mismo loop. Un tope propio, contado por tarea, sale por un nodo (`recover`) que cierra el turno con un mensaje del código. Detectar la llamada repetida es todavía mejor: corta en la segunda vuelta.
+- **La API manda en la forma del historial.** Cada pedido de herramienta necesita su respuesta, aunque no se haya ejecutado. Persona e IA tienen que alternarse, así que la corrección de una salida estructurada va dentro del último mensaje de la persona.
+- **El viaje en el tiempo es bifurcar, no volver atrás.** `updateState` sobre un checkpoint viejo crea una rama nueva, que pasa a ser el estado del hilo; la anterior sigue en la historia. Pero `getStateHistory` trae todas las ramas mezcladas: para encontrar un turno en la rama actual hay que seguir la cadena de padres.
+- **El estado del grafo se puede rebobinar; la base, no.** Una acción ya aprobada quedó escrita, y la rama nueva no lo sabe. La clave de la fase 5 evita ejecutarla dos veces y la marca de la web lo dice, pero deshacer sería otra acción, con su propia aprobación.
+- Dudas abiertas: si conviene guardar la marca de «editado» en el hilo (sin que el modelo la vea), si se puede navegar entre versiones de un mensaje (el «‹ 1/2 ›» de otros chats) y si a la «Lectura» del reporte le conviene distinguir un corte (`AbortError`) de una falla del modelo: hoy los trata igual.

@@ -17,8 +17,11 @@ Convención de los diagramas: **línea continua** = arista fija (siempre ocurre)
 | 7 | 7 en el principal (`router`, `supervisor`, `query_graph`, `action_graph`, `report_graph`, `chat`, `clarify`); los tres `*_graph` son subgrafos con 2, 5 y 5 nodos | 7 | 6 | 13 (más 4, 10 y 8 dentro de los subgrafos) | principal: `messages`, `intent`, `intentReason`, `plan`, `activeAgent`, `report`; privados: `pendingAction` y `approval` (acciones), `reportParts` (reportes) | Subgrafos con estado compartido y privado, y un supervisor que traspasa el control con `Command`: pedidos mixtos |
 | 8 | 9 en el principal (los de la fase 7 más `load_memory` y `memory`); subgrafos sin cambios | 9 | 7 | 16 (más 4, 10 y 8 dentro de los subgrafos) | principal: los de la fase 7 más `businessContext` (compartido con consultas y acciones); privados, igual que en la fase 7 | Memoria de largo plazo: un Store de Postgres que no depende del hilo, leído al empezar cada turno |
 | 9 | 9 (los mismos) | 9 | 7 | 16 (más 4, 10 y 8 dentro de los subgrafos) | los mismos que en la fase 8 | Streaming: el turno corre con `graph.stream` (modos `values`, `updates` y `messages`, con subgrafos) y un chat web lo muestra en vivo. Cambia cómo se invoca el grafo, no su forma |
+| 10 | 9 en el principal (los mismos); consultas y acciones suman `recover` (3 y 6 nodos) | 9 | 7 | 16 (más 6, 12 y 8 dentro de los subgrafos) | los mismos que en la fase 9 | Errores y viaje en el tiempo: reintentos de las lecturas (`retryPolicy` en `load_memory`, `withRetry` en herramientas y secciones), un tope de 4 rondas que sale por `recover`, segundo intento ante salidas mal formadas, y bifurcar el hilo desde un checkpoint para editar o reintentar un turno |
 
 Qué cambió de la fase 1 a la 2: el nodo `chat` pasó a llamarse `agent` y ahora puede pedir herramientas; apareció el nodo `tools`; la arista `chat → END` se volvió condicional (`agent → END` solo si no hay llamadas pendientes) y se sumó `tools → agent`, que cierra el ciclo.
+
+Qué cambió de la fase 9 a la 10: el grafo principal tiene la misma forma, pero `load_memory` ganó una **`retryPolicy`**: si la lectura del Store falla por una caída transitoria, LangGraph repite el nodo. Los subgrafos de consultas y de acciones suman un nodo, **`recover`**, al que `routeAfterAgent` manda cuando la tarea llega a la 5.ª ronda de herramientas o repite una llamada idéntica. El turno termina con un mensaje del código en vez de un `GraphRecursionError`. El modo `custom` se sumó al stream (los avisos de reintento). Y el hilo ya no es una línea: editar o reintentar un turno lo **bifurca** desde el checkpoint en que entró ese mensaje (`updateState` como `__start__`).
 
 Qué cambió de la fase 8 a la 9: nada en nodos, aristas ni estado. Todo turno (de la terminal o de la web) corre con `graph.stream` en vez de `graph.invoke`, y cada dato que sale del grafo se traduce a un evento de la interfaz (`toUiEvents`). Un efecto en los modelos: el modo `messages` le pide a cada modelo que transmita, así que los de salida estructurada (router, memoria, período del reporte) se crearon con `disableStreaming` para que contesten todo junto.
 
@@ -485,8 +488,74 @@ flowchart LR
 
 ---
 
+## Fase 10: errores, reintentos y viaje en el tiempo (`fase-10`)
+
+El grafo principal es el de la fase 8, con una política de reintento en `load_memory`. Lo nuevo está adentro de los subgrafos de consultas y de acciones.
+
+```mermaid
+flowchart TD
+    subgraph Q["query_graph (3 nodos, 6 conexiones)"]
+        QS((START)) -->|"fija"| QA["agent"]
+        QA -.->|"pidió herramientas<br/>(ronda ≤ 4, sin repetir)"| QT["tools<br/>cada lectura con withRetry"]
+        QT -->|"fija"| QA
+        QA -.->|"respondió"| QE((END))
+        QA -.->|"5.ª ronda o llamada repetida"| QR["recover<br/>mensaje del código"]
+        QR -->|"fija"| QE
+    end
+    subgraph A["action_graph (6 nodos, 12 conexiones)"]
+        AA["action_agent"] -.->|"5.ª ronda o repetida<br/>(una propuesta cuenta como ronda)"| AR["recover"]
+        AA -.-> AT["tools"] & AP["propose_action"]
+        AR -->|"fija"| AE((END))
+    end
+    LM["load_memory<br/>retryPolicy: 3 intentos si la falla es transitoria"] --> RT["router → supervisor → …"]
+```
+
+**Resumen:** el principal no cambia: 9 nodos y 16 conexiones. Consultas pasa de 2 a 3 nodos y de 4 a 6 conexiones. Acciones pasa de 5 a 6 nodos y de 10 a 12. Reportes queda igual (5 y 8). Todo comprobado con `getGraphAsync()` en `tests/graph-shape.test.ts`. El estado no suma campos: el resultado de una acción queda marcado en su mensaje de herramienta (`artifact: { outcome }`), no en el estado.
+
+| Nodo | Quién lo escribió | Qué hace | Modelo | Escribe en el estado |
+| --- | --- | --- | --- | --- |
+| `recover` (consultas y acciones) | Nosotros (`nodes/recover.ts`) | Cierra la tarea cuando el agente llega al tope o repite una llamada. Responde las llamadas que quedaron pedidas con «no se ejecutó» (la API exige una respuesta por llamada) y arma un mensaje con lo que consultó, que no pudo terminar y que conviene pedirlo más concreto | ninguno | Los mensajes de herramienta marcados `skipped` y 1 mensaje de IA |
+
+| # | Desde | Hasta | Tipo | Cómo se declara |
+| --- | --- | --- | --- | --- |
+| nueva | `agent` (o `action_agent`) | `recover` | Condicional | un destino más de `routeAfterAgent`, que cuenta las rondas de la tarea desde `startedAt` y compara la llamada nueva con las anteriores |
+| nueva | `recover` | `END` | Fija | `.addEdge("recover", END)` |
+
+**Quién reintenta qué:**
+
+| Qué falla | Quién reintenta | Cuánto |
+| --- | --- | --- |
+| Una herramienta de consulta (la base) | `withRetry`, dentro de `safeTool` | 3 intentos, esperas de ~200 y ~600 ms, solo si la falla es transitoria (`isTransient`) |
+| Una sección del reporte | `withRetry`, dentro de `runSection` | igual |
+| `load_memory` (el Store) | LangGraph (`retryPolicy` del nodo) | igual |
+| Una llamada al modelo | LangChain (`AsyncCaller`) | 3 reintentos (429, 5xx, 529, red) |
+| Una salida estructurada mal formada (router, memoria, período) | `invokeWithCorrection` | 1 segundo intento con la corrección; después, el respaldo de siempre, a la vista como «(respaldo)» |
+| Una escritura (`execute_action`, `memory`) | nadie | se informa y decide la persona |
+
+**El hilo como árbol.** Editar o reintentar un turno no agrega nodos: es otra forma de invocar el grafo.
+
+```mermaid
+gitGraph
+    commit id: "«¿turnos mañana?»"
+    commit id: "respuesta"
+    branch editado
+    commit id: "«¿turnos pasado mañana?»"
+    commit id: "respuesta nueva"
+    checkout main
+    commit id: "(rama original, en la historia)"
+```
+
+| Situación | Camino | Notas |
+| --- | --- | --- |
+| Una lectura que falla 2 veces y anda | `… → agent → tools → agent → END` | Igual que sin falla; los reintentos se ven como eventos `retry` (modo `custom`) |
+| Un agente que da vueltas | `… → agent → tools → … → agent → recover → END` | Corta en la 5.ª ronda, o en la segunda llamada idéntica; el hilo queda listo |
+| Editar o reintentar | `updateState(checkpoint, { messages: [mensaje] }, "__start__")` y `stream(null)` | La rama nueva es el estado del hilo; una acción ya aprobada no se ejecuta de nuevo (clave de la fase 5) |
+
+---
+
 ## Próximas fases (planeado, aún no existe)
 
 | Fase | Cambio previsto en el grafo |
 | --- | --- |
-| 10 | Políticas de reintento en nodos y herramientas, un nodo de recuperación y repetir una ejecución desde un checkpoint anterior (viaje en el tiempo) |
+| 11 | Trazas locales de cada ejecución (pasos, herramientas y tokens) con callbacks y eventos del stream, y un set de evaluaciones que se corre por comando. Cambia cómo se observa el grafo, no su forma |
+| 12 | El grafo corre en el servidor local de LangGraph, con límites de tiempo por nodo y la guía de operación |
