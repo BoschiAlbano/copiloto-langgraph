@@ -25,7 +25,7 @@ Existe desde la fase 10 (etiqueta `fase-10`):
   - el mensaje de la persona con el que se separó de las otras (o el primero del hilo, para la original);
   - cuántos mensajes tiene;
   - cuándo fue su último cambio;
-  - si ejecutó alguna acción después de la bifurcación (R7).
+  - las acciones que ejecutó y que la rama actual no tiene (R7).
 - R3: Las ramas salen de la historia de LangGraph (`getStateHistory`). **No hay una tabla propia**: lo que muestra el panel es siempre lo que está guardado.
 
 **El panel**
@@ -215,3 +215,8 @@ Una tarea = un commit en la rama `dev/ramas-del-hilo`, que sale de `main` con la
 - **Solo el panel, sin el selector «‹ 1/2 ›»** (al aprobar la spec). Se empieza por lo que se pidió; el selector pasa a fuera de alcance.
 - **Se trabaja en `dev/ramas-del-hilo`, desde `main`.** Antes se unió `dev/fase-10` a `main` (avance directo, como las fases anteriores).
 - **«Versiones de la conversación» en la pantalla, «ramas» en el código y en la documentación.**
+- **La historia del hilo se lee en un módulo propio, `src/graph/history.ts`** (T2). Lo comparten el viaje en el tiempo (`findTurnStart`) y las ramas: arma el árbol de checkpoints (cada uno con sus hijos, del más viejo al más nuevo) y el camino desde la raíz hasta cualquier checkpoint. `time-travel.ts` pasó a usarlo sin cambiar su comportamiento.
+- **En una bifurcación, el hijo más viejo sigue la rama de la que salió** y cada hijo más nuevo empieza una rama. Así, la versión de cada rama sale de cuándo se creó su primer checkpoint propio, y no cambia al ir y volver.
+- **«Ejecutó una acción» es relativo a la rama actual.** El panel marca las acciones de una rama que **no están** en la actual. Una acción de la parte común está en las dos, así que no se marca. Al abrir una rama, `switchBranch` devuelve las acciones de la rama que se deja que la abierta no tiene: son las que hay que recordar.
+- **Abrir una rama lee la historia una sola vez.** El primer borrador la leía antes y después de cambiar. Leerla es lo que cuesta, así que ahora se arma el árbol una vez y las acciones se comparan con los mensajes de las dos puntas.
+- **Medido con Postgres** (CA6): un hilo de 30 turnos, editado 4 veces (5 ramas, 234 checkpoints), con respuestas de ~600 caracteres. `listBranches`: **313 ms de mediana** (282 a 503; el máximo es la primera lectura). `switchBranch`: 308 a 354 ms. Entra en el criterio. Si hiciera falta bajarlo, el camino es leer la estructura (padres, fechas, `next`) sin los mensajes y pedir los mensajes solo de las puntas y las bifurcaciones. Hoy `getStateHistory` trae los mensajes de cada checkpoint.

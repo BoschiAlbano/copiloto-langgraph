@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { HumanMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
+import { HumanMessage, type BaseMessage } from "@langchain/core/messages";
 import type { RunnableConfig } from "@langchain/core/runnables";
-import { isActionName } from "../tools/actions/schemas.js";
 import type { UiEvent } from "../web/events.js";
+import { checkpointIdOf, executedActions, messagesOf, pathTo, readHistory, type HistoryGraph } from "./history.js";
 import { streamInvoke, ThreadAwaitingApprovalError, ThreadPendingError, type TurnAgent } from "./run-turn.js";
-import { parseThreadId } from "./thread-id.js";
-import { getStatus, type Snapshot } from "./threads.js";
+import { getStatus } from "./threads.js";
+
+export type { HistoryGraph } from "./history.js";
 
 // Viaje en el tiempo (fase 10, R10 a R13): volver a correr un turno desde su inicio, con otro mensaje («editar y volver
 // a preguntar») o con el mismo («reintentar»). Las dos cosas son una BIFURCACIÓN de LangGraph: desde el checkpoint en
@@ -20,14 +21,7 @@ export class TurnNotFoundError extends Error {
   }
 }
 
-/** Lo que se puede leer de la historia del grafo (el grafo compilado lo cumple). */
-export interface HistoryGraph {
-  getStateHistory(config: RunnableConfig): AsyncIterable<Snapshot & { parentConfig?: RunnableConfig }>;
-}
-
-const idOf = (config?: RunnableConfig) => String(config?.configurable?.checkpoint_id ?? "");
-const hasMessage = (snapshot: Snapshot, messageId: string) =>
-  (snapshot.values.messages ?? []).some((m: BaseMessage) => HumanMessage.isInstance(m) && m.id === messageId);
+const hasMessage = (messages: BaseMessage[], messageId: string) => messages.some((m) => HumanMessage.isInstance(m) && m.id === messageId);
 
 export interface TurnStart {
   /** El checkpoint en que ese mensaje todavía no estaba (donde entró): desde ahí se bifurca. */
@@ -42,32 +36,19 @@ export interface TurnStart {
 
 /**
  * El inicio de un turno, buscado por el id del mensaje de la persona en la RAMA ACTUAL del hilo. La historia de
- * LangGraph trae los checkpoints de todas las ramas: se arma un mapa y se sigue la cadena de padres desde el último.
+ * LangGraph trae los checkpoints de todas las ramas: se sigue la cadena de padres desde el último (`pathTo`).
  */
 export async function findTurnStart(graph: HistoryGraph, threadId: string, messageId: string): Promise<TurnStart> {
-  const all = new Map<string, Snapshot & { parentConfig?: RunnableConfig }>();
-  let latest: (Snapshot & { parentConfig?: RunnableConfig }) | undefined;
-  for await (const snapshot of graph.getStateHistory({ configurable: { thread_id: parseThreadId(threadId) } })) {
-    latest ??= snapshot; // la historia viene de la más nueva a la más vieja
-    all.set(idOf(snapshot.config), snapshot);
-  }
-  if (!latest || !hasMessage(latest, messageId)) throw new TurnNotFoundError(messageId);
-  // Hacia atrás por la rama actual: el primer checkpoint SIN el mensaje es donde entró (su `input`).
-  let current = all.get(idOf(latest.parentConfig));
-  while (current && hasMessage(current, messageId)) current = all.get(idOf(current.parentConfig));
+  const history = await readHistory(graph, threadId);
+  const latest = history.latest;
+  if (!latest || !hasMessage(messagesOf(latest), messageId)) throw new TurnNotFoundError(messageId);
+  // Hacia atrás por la rama actual: el último checkpoint SIN el mensaje es donde entró (su `input`).
+  const current = pathTo(history, checkpointIdOf(latest.config)).findLast((s) => !hasMessage(messagesOf(s), messageId));
   if (!current) throw new TurnNotFoundError(messageId);
-  const messages: BaseMessage[] = latest.values.messages ?? [];
+  const messages = messagesOf(latest);
   const at = messages.findIndex((m) => m.id === messageId);
   const original = messages[at] as HumanMessage;
-  return { config: current.config, before: current.values.messages ?? [], original, replaced: messages.slice(at) };
-}
-
-/** Las acciones que la rama que se reemplaza ya ejecutó (R13: no se deshacen). Su texto, como lo armó el código. */
-function executedActions(messages: BaseMessage[]): string[] {
-  return messages
-    .filter((m): m is ToolMessage => ToolMessage.isInstance(m) && Boolean(m.name && isActionName(m.name)))
-    .filter((m) => (m.artifact as { outcome?: string } | undefined)?.outcome === "executed")
-    .map((m) => m.text);
+  return { config: current.config, before: messagesOf(current), original, replaced: messages.slice(at) };
 }
 
 async function* streamBranch(
@@ -91,9 +72,9 @@ async function* streamBranch(
     { messages: [message] },
     "__start__",
   );
-  const replacedActions = executedActions(start.replaced);
+  const replacedActions = executedActions(start.replaced).map((a) => a.text);
   yield { type: "turn", kind, humanMessageId: message.id!, ...(replacedActions.length && { replacedActions }) };
-  yield* streamInvoke(agent, threadId, null, start.before.length + 1, signal, { checkpoint_id: idOf(branch), checkpoint_ns: "" });
+  yield* streamInvoke(agent, threadId, null, start.before.length + 1, signal, { checkpoint_id: checkpointIdOf(branch), checkpoint_ns: "" });
 }
 
 /** «Editar y volver a preguntar» (R10): el turno de ese mensaje, de nuevo, con otro texto. */
