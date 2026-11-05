@@ -40,7 +40,7 @@ describe.skipIf(!enabled)("reportes con el modelo real", () => {
       agent = createAgent(env);
     });
     afterAll(async () => {
-      await threads.cleanup(agent.checkpointer);
+      await threads.cleanup(agent.checkpointer, agent.traces);
       await agent.close();
     });
 

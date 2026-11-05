@@ -24,7 +24,7 @@ describe.skipIf(!enabled)("CA1 con el modelo real: retomar tras reiniciar", () =
   });
   afterAll(async () => {
     const agent = createAgent(env);
-    await threads.cleanup(agent.checkpointer);
+    await threads.cleanup(agent.checkpointer, agent.traces);
     await agent.close();
     await sql.end();
   });

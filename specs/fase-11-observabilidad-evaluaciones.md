@@ -282,3 +282,10 @@ Una tarea = un commit en la rama `dev/fase-11`.
   - sin «LLM como juez»;
   - el set corre con los modelos del `.env`.
 - **El esquema se llama `observability`**, no `traces`: guarda las trazas y las corridas de evaluación.
+- **El árbol de pasos va entero en una columna JSON de la traza**, no en una tabla `trace_spans` aparte (T3). Se escribe una vez al terminar el turno y se lee entero para dibujar la línea de tiempo: nunca hace falta buscar un paso suelto. Una sola escritura por turno, además, es lo que pide R3. Las corridas de evaluación (`eval_runs`, `eval_results`) se crearon en el mismo esquema desde ya, para no migrar dos veces.
+- **Los reintentos se suman al paso aunque el aviso llegue tarde.** El evento `retry` viaja por el stream, y a veces llega a `streamInvoke` cuando la herramienta ya terminó. `noteRetry` busca el paso que está corriendo con ese nombre y, si no hay, el último con ese nombre. Lo encontró el test de integración; con el recorder solo no se veía.
+- **`streamInvoke` recibe sus opciones en un objeto** (`signal`, `checkpoint` y, nuevo, `trace`: el tipo de turno y su mensaje). Ya tenía dos parámetros opcionales al final y sumaba un tercero.
+- **Cómo terminó el turno**, en la traza: `ok`, `awaiting` (se pausó por una tarjeta), `pending` (se cortó: la persona cerró la página, o dejó de leer los eventos) o `error`. Decidir sobre una tarjeta es otro turno (`resume`), con su propia traza y la decisión como mensaje («reject: mejor no»).
+- **Sin el esquema, los turnos siguen sin trazas**: el store avisa una sola vez «corré `npm run db:observability`» y no vuelve a intentar romper nada. `db:reset` borra y recrea el esquema.
+- **Los tests con el modelo real borran también sus trazas** (`TestThreads.cleanup` recibe el store): el agente real deja una traza por turno.
+- **Medido** (CA6, con modelos falsos para aislar lo que suma trazar): 100 turnos de consulta con herramienta tardan 11,69 ms de mediana sin trazas y 11,87 ms con trazas: **0,18 ms por turno** (12 pasos). Guardar la traza en Postgres tarda 3,4 ms de mediana (unos 2 KB de pasos), y el turno no la espera. Trazar no llama al modelo: cero tokens.

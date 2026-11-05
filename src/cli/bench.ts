@@ -110,6 +110,7 @@ for (const testCase of cases) {
     error = ` (ERROR: ${(e as Error).message})`;
   } finally {
     await deleteThread(agent.checkpointer, threadId); // la batería no deja hilos en la base
+    await agent.traces.deleteThread(threadId);
     benchThreads.push(threadId);
   }
   const total = totalUsage(usage);

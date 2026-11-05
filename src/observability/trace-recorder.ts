@@ -211,12 +211,14 @@ export class TraceRecorder extends BaseCallbackHandler {
 
   /**
    * Un reintento que avisó una herramienta o una sección (fase 10, evento `retry`): se suma al paso que está corriendo
-   * con ese nombre. Las secciones del reporte se llaman `section:<sección>` y su nodo, `report_<sección>`.
+   * con ese nombre o, si ya terminó, al último con ese nombre. El aviso viaja por el stream y puede llegar cuando el
+   * paso ya cerró. Las secciones del reporte se llaman `section:<sección>` y su nodo, `report_<sección>`.
    */
   noteRetry(target: string) {
     const name = target.startsWith("section:") ? `report_${target.slice("section:".length)}` : target;
-    const running = [...this.spans.values()].reverse().find((s) => s.name === name && s.status === "running");
-    if (running) running.retries = (running.retries ?? 0) + 1;
+    const candidates = [...this.spans.values()].reverse().filter((s) => s.name === name);
+    const span = candidates.find((s) => s.status === "running") ?? candidates[0];
+    if (span) span.retries = (span.retries ?? 0) + 1;
   }
 
   /** La traza del turno, con lo que se sabe al terminar. Los pasos que no terminaron quedan como «corriendo». */

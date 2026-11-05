@@ -47,7 +47,7 @@ describe.skipIf(!enabled)("regresión: una preferencia de formato con un ejemplo
       const asked = await runTurn(agent, threads.fresh("test"), "¿Cuánto stock hay de cera mate?");
       expect(asked.reply, asked.reply).toMatch(/\d+ U\/S/);
     } finally {
-      await threads.cleanup(agent.checkpointer);
+      await threads.cleanup(agent.checkpointer, agent.traces);
     }
   }, 180_000);
 });

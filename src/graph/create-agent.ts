@@ -7,6 +7,7 @@ import { makeActionRunner } from "./action-runner.js";
 import { createMemoryStore, MEMORY_NAMESPACE } from "../memory/store.js";
 import { createCheckpointing } from "./checkpointing.js";
 import { buildGraph } from "./index.js";
+import { PostgresTraceStore } from "../observability/store.js";
 import { claude, makeClarifyModel, makeMemoryModel, makeReportModel, makeReportPlanModel, makeRouterModel } from "./models.js";
 import { runSection } from "./report/sections.js";
 
@@ -35,6 +36,9 @@ export function createAgent(
   const readTools: StructuredToolInterface[] = makeReadTools(db);
   const tools = options.wrapReadTools ? options.wrapReadTools(readTools) : readTools;
   const checkpointing = createCheckpointing(env.DATABASE_URL_CHECKPOINTS);
+  // Las trazas de cada turno (fase 11): mismo rol y mismo pool que los hilos. Las viejas se borran al arrancar.
+  const traces = new PostgresTraceStore(checkpointing.pool);
+  traces.prune(env.TRACE_RETENTION_DAYS).catch((error) => console.warn(`[trazas] No se pudieron borrar las viejas: ${(error as Error).message}`));
   // La memoria de largo plazo (fase 8): el Store, en el mismo esquema y con el mismo rol que los hilos.
   const store = createMemoryStore(env.DATABASE_URL_CHECKPOINTS);
 
@@ -63,6 +67,8 @@ export function createAgent(
     graph,
     checkpointer: checkpointing.saver,
     pool: checkpointing.pool,
+    /** Las trazas de los turnos (fase 11). */
+    traces,
     /** La memoria de largo plazo y su namespace (para listar y borrar desde la terminal). */
     memory: { store, namespace: options.memoryNamespace ?? MEMORY_NAMESPACE },
     close: async () => {

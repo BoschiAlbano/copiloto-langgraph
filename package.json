@@ -27,6 +27,7 @@
     "db:migrate": "prisma migrate deploy",
     "db:roles": "tsx src/db/roles.ts",
     "db:checkpoints": "tsx src/db/checkpoints.ts",
+    "db:observability": "tsx src/db/observability.ts",
     "db:seed": "tsx src/db/seed.ts",
     "db:reset": "tsx src/db/reset.ts"
   },

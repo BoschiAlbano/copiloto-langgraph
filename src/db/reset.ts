@@ -10,6 +10,8 @@ const DROP_SQL = `
   DROP TYPE IF EXISTS "AppointmentStatus", "PaymentMethod";
   -- Los hilos guardados hablan de datos del seed, que cambian: se borran con ellos.
   DROP SCHEMA IF EXISTS langgraph CASCADE;
+  -- Las trazas y las corridas de evaluación también hablan de esos hilos (fase 11).
+  DROP SCHEMA IF EXISTS observability CASCADE;
 `;
 
 loadEnvFile();
@@ -31,4 +33,5 @@ try {
 execSync("npx prisma migrate deploy", { stdio: "inherit" });
 execSync("npx tsx src/db/roles.ts", { stdio: "inherit" });
 execSync("npx tsx src/db/checkpoints.ts", { stdio: "inherit" });
+execSync("npx tsx src/db/observability.ts", { stdio: "inherit" });
 execSync("npx tsx src/db/seed.ts", { stdio: "inherit" });

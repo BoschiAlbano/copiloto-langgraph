@@ -155,7 +155,7 @@ describe("TraceRecorder (CA1)", () => {
     recorder.handleToolEnd("{}", "t1");
     recorder.handleChainStart({} as never, {}, "s1", "root", [], { langgraph_node: "report_stock" }, undefined, "report_stock");
     recorder.noteRetry("section:stock");
-    recorder.noteRetry("otra-cosa"); // nada corriendo con ese nombre: se ignora
+    recorder.noteRetry("otra-cosa"); // ningún paso con ese nombre: se ignora
     const trace = recorder.finish(meta);
     expect(trace.spans.find((s) => s.name === "listAppointments")).toMatchObject({ retries: 2, duration: 600, args: { date: "2026-11-06" } });
     expect(trace.spans.find((s) => s.name === "report_stock")).toMatchObject({ retries: 1, status: "running" });

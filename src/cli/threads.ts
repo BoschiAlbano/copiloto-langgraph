@@ -54,6 +54,7 @@ try {
     } else {
       if (!(await getStatus(agent.graph, id)).exists) throw new Error(`No existe el hilo ${id}.`);
       await deleteThread(agent.checkpointer, id);
+      await agent.traces.deleteThread(id); // sus trazas también (fase 11)
       console.log(`Hilo ${id} borrado.`);
     }
   } else {

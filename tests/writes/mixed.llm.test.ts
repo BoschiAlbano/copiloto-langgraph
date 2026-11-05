@@ -20,7 +20,7 @@ describe.skipIf(!enabled)("pedido mixto con el modelo real y la base (CA2)", () 
     agent = createAgent(loadEnv());
   });
   afterAll(async () => {
-    await threads.cleanup(agent.checkpointer);
+    await threads.cleanup(agent.checkpointer, agent.traces);
     await agent.close();
   });
 

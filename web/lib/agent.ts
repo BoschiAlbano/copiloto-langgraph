@@ -21,6 +21,7 @@ function init() {
   const agent = createAgent(loadRootEnv())
   const handlers = makeHandlers({
     graph: agent.graph,
+    traces: agent.traces,
     listThreads: () => listThreads({ pool: agent.pool, graph: agent.graph }),
     memory: agent.memory,
   })

@@ -22,7 +22,7 @@ describe.skipIf(!enabled)("rama de acciones con el modelo real", () => {
     fixtures = await createFixtures(ownerUrl!);
   });
   afterAll(async () => {
-    await threads.cleanup(agent.checkpointer);
+    await threads.cleanup(agent.checkpointer, agent.traces);
     await fixtures.cleanup();
     await agent.close();
   });

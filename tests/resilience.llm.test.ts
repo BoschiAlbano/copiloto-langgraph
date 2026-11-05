@@ -53,7 +53,7 @@ describe.skipIf(!enabled)("fallas de la base con el modelo real (F1 a F3)", () =
       if (done?.type !== "done") throw new Error(`el turno no terminó: ${JSON.stringify(done)}`);
       const retries = events.filter((e) => e.type === "retry" && e.target === c.failure.tool);
       const status = await getStatus(agent.graph, id);
-      await threads.cleanup(agent.checkpointer);
+      await threads.cleanup(agent.checkpointer, agent.traces);
       return { result: done.result, retries, pending: status.pending, attempts: wrapped!.attempts() };
     } finally {
       await agent.close();

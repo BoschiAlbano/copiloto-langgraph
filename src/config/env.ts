@@ -14,6 +14,8 @@ const envSchema = z.object({
   DATABASE_URL_CHECKPOINTS: z.string().min(1),
   // Rol copilot_actions: el único que escribe datos del negocio, y solo después de una aprobación.
   DATABASE_URL_ACTIONS: z.string().min(1),
+  // Cuántos días se conservan las trazas de los turnos (fase 11). Las más viejas se borran al arrancar.
+  TRACE_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -74,7 +74,11 @@ async function* streamBranch(
   );
   const replacedActions = executedActions(start.replaced).map((a) => a.text);
   yield { type: "turn", kind, humanMessageId: message.id!, ...(replacedActions.length && { replacedActions }) };
-  yield* streamInvoke(agent, threadId, null, start.before.length + 1, signal, { checkpoint_id: checkpointIdOf(branch), checkpoint_ns: "" });
+  yield* streamInvoke(agent, threadId, null, start.before.length + 1, {
+    signal,
+    checkpoint: { checkpoint_id: checkpointIdOf(branch), checkpoint_ns: "" },
+    trace: { kind, input: message.text },
+  });
 }
 
 /** «Editar y volver a preguntar» (R10): el turno de ese mensaje, de nuevo, con otro texto. */

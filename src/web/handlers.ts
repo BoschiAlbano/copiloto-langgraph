@@ -16,6 +16,7 @@ import { threadIdSchema } from "../graph/thread-id.js";
 import { streamForkTurn, streamReplayTurn, TurnNotFoundError, type HistoryGraph } from "../graph/time-travel.js";
 import { conversationMessages, getStatus, type ThreadGraph, type ThreadSummary } from "../graph/threads.js";
 import { deleteMemory, listMemories, type MemoryBank } from "../memory/store.js";
+import type { TraceStore } from "../observability/store.js";
 import type { UiEvent } from "./events.js";
 import { checkMutation, jsonError, readJson } from "./guard.js";
 import { ThreadLocks } from "./locks.js";
@@ -45,6 +46,8 @@ export interface WebDeps {
   listThreads: () => Promise<ThreadSummary[]>;
   /** La memoria de largo plazo. Sin ella, el panel de memorias dice que no está disponible. */
   memory?: MemoryBank;
+  /** Dónde guarda su traza cada turno (fase 11). Sin esto, los turnos no dejan trazas. */
+  traces?: TraceStore;
   locks?: ThreadLocks;
   /** Dónde se anotan los detalles de un error (en el servidor, nunca en el navegador). */
   log?: (message: string, error?: unknown) => void;
@@ -96,6 +99,8 @@ export function makeHandlers(deps: WebDeps) {
   const log = deps.log ?? ((message: string, error?: unknown) => console.error(message, error));
 
   const parseId = (raw: string) => threadIdSchema.safeParse(raw);
+  /** Lo que necesita cada turno: el grafo y, si hay, dónde guardar su traza. */
+  const turnAgent = { graph: deps.graph, ...(deps.traces && { traces: deps.traces }) };
 
   /**
    * Corre un turno en vivo: toma el hilo, une la señal del pedido con la del corte del navegador, y convierte una falla
@@ -219,7 +224,7 @@ export function makeHandlers(deps: WebDeps) {
       const status = await getStatus(deps.graph, id.data);
       if (status.awaiting) return jsonError(409, "Este hilo espera tu decisión sobre una acción: aprobala, rechazala o editala antes de escribir.");
       if (status.pending) return jsonError(409, "Este hilo tiene un turno a medias: continualo antes de escribir.");
-      return stream(request, id.data, (signal) => streamRunTurn({ graph: deps.graph }, id.data, message.data.text, signal));
+      return stream(request, id.data, (signal) => streamRunTurn(turnAgent, id.data, message.data.text, signal));
     },
 
     /** POST /api/threads/:id/decision  HumanDecision → SSE */
@@ -234,7 +239,7 @@ export function makeHandlers(deps: WebDeps) {
       if (!decision.success) return jsonError(400, "La decisión no es válida: tiene que ser aprobar, rechazar (con motivo opcional) o editar (con los parámetros).");
       const status = await getStatus(deps.graph, id.data);
       if (!status.awaiting) return jsonError(409, "Este hilo no está esperando ninguna decisión.");
-      return stream(request, id.data, (signal) => streamResumeTurn({ graph: deps.graph }, id.data, decision.data, signal));
+      return stream(request, id.data, (signal) => streamResumeTurn(turnAgent, id.data, decision.data, signal));
     },
 
     /** POST /api/threads/:id/continue → SSE */
@@ -246,17 +251,17 @@ export function makeHandlers(deps: WebDeps) {
       const status = await getStatus(deps.graph, id.data);
       if (status.awaiting) return jsonError(409, "Este hilo espera tu decisión sobre una acción, no un «Continuar».");
       if (!status.pending) return jsonError(409, "No hay ningún turno a medias en este hilo.");
-      return stream(request, id.data, (signal) => streamContinueTurn({ graph: deps.graph }, id.data, signal));
+      return stream(request, id.data, (signal) => streamContinueTurn(turnAgent, id.data, signal));
     },
 
     /** POST /api/threads/:id/edit  { messageId, text } → SSE (fase 10: editar y volver a preguntar) */
     async postEdit(request: Request, rawId: string): Promise<Response> {
-      return branch(request, rawId, editBodySchema, (id, body, signal) => streamForkTurn({ graph: deps.graph }, id, body.messageId, body.text, signal));
+      return branch(request, rawId, editBodySchema, (id, body, signal) => streamForkTurn(turnAgent, id, body.messageId, body.text, signal));
     },
 
     /** POST /api/threads/:id/retry  { messageId } → SSE (fase 10: reintentar el turno de ese mensaje) */
     async postRetry(request: Request, rawId: string): Promise<Response> {
-      return branch(request, rawId, retryBodySchema, (id, body, signal) => streamReplayTurn({ graph: deps.graph }, id, body.messageId, signal));
+      return branch(request, rawId, retryBodySchema, (id, body, signal) => streamReplayTurn(turnAgent, id, body.messageId, signal));
     },
 
     /** GET /api/threads/:id/branches → las ramas del hilo (specs/ramas-del-hilo.md) */

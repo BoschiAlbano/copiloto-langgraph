@@ -8,6 +8,8 @@ import { AGENT_RECURSION_LIMIT } from "./limits.js";
 import type { Plan } from "./plan.js";
 import type { Section } from "./report/state.js";
 import { toUiEvents, type StreamChunk, type UiEvent } from "../web/events.js";
+import type { TraceSink } from "../observability/store.js";
+import { TraceRecorder, type TraceStatus, type TurnKind } from "../observability/trace-recorder.js";
 import { parseThreadId } from "./thread-id.js";
 import { getStatus } from "./threads.js";
 import { agentSteps, summarizeTurn, type AgentStep, type TurnSummary } from "./usage.js";
@@ -29,10 +31,24 @@ export interface TurnResult {
   awaiting?: ApprovalRequest;
   /** Si el turno fue un reporte: el período y cómo salió cada sección. */
   report?: { label: string; notice?: string; sections: Record<Section, "ok" | "error" | "missing"> };
+  /** La traza de este turno (fase 11), si se guardan trazas. */
+  traceId?: string;
 }
 
-/** Lo mínimo que hace falta del agente: el grafo con checkpointer. Los tests pasan grafos propios. */
-export type TurnAgent = Pick<Agent, "graph">;
+/**
+ * Lo mínimo que hace falta del agente: el grafo con checkpointer. Los tests pasan grafos propios. Con `traces`, cada
+ * turno deja su traza (fase 11).
+ */
+export type TurnAgent = Pick<Agent, "graph"> & { traces?: TraceSink };
+
+export interface InvokeOptions {
+  /** Corta el turno (por ejemplo, si se cierra la página). El hilo queda a medias, como tras una falla. */
+  signal?: AbortSignal;
+  /** Fase 10: desde qué checkpoint correr (una rama nueva del viaje en el tiempo); sin esto, desde el último. */
+  checkpoint?: { checkpoint_id?: string; checkpoint_ns?: string };
+  /** Fase 11: qué tipo de turno es y con qué mensaje empezó, para su traza. */
+  trace?: { kind: TurnKind; input?: string };
+}
 
 type TurnInput = { messages: HumanMessage[] } | Command | null;
 
@@ -60,40 +76,68 @@ const STREAM_MODES = ["values", "updates", "messages", "custom"] as const;
  * @param already cuántos mensajes del hilo ya existían (y no son de esta llamada) cuando se invoca. El resumen
  *   del turno cuenta solo lo que se agregó después: así, al decidir o continuar, no se vuelven a listar las
  *   herramientas que se usaron antes de la pausa.
- * @param signal corta el turno (por ejemplo, si se cierra la página). El hilo queda a medias, como tras una falla.
+ *
+ * Con `agent.traces`, el turno deja su traza (fase 11): un `TraceRecorder` más entre los callbacks, y al terminar (bien,
+ * en pausa, cortado o con error) se guarda sin esperar. Si guardarla falla, queda un aviso y el turno sigue igual (R3).
  */
-export async function* streamInvoke(
-  agent: TurnAgent,
-  threadId: string,
-  input: TurnInput,
-  already: number,
-  signal?: AbortSignal,
-  /** Fase 10: desde qué checkpoint correr (una rama nueva del viaje en el tiempo); sin esto, desde el último. */
-  checkpoint?: { checkpoint_id?: string; checkpoint_ns?: string },
-): AsyncGenerator<UiEvent> {
+export async function* streamInvoke(agent: TurnAgent, threadId: string, input: TurnInput, already: number, options: InvokeOptions = {}): AsyncGenerator<UiEvent> {
+  const { signal, checkpoint } = options;
   const tracker = new UsageTracker();
-  // El tipo de `Command` del grafo compilado exige los nombres de nodo exactos; acá solo se usa `resume`.
-  const stream = await agent.graph.stream(input as never, {
-    configurable: { thread_id: parseThreadId(threadId), ...checkpoint },
-    recursionLimit: AGENT_RECURSION_LIMIT,
-    callbacks: [tracker],
-    streamMode: [...STREAM_MODES],
-    subgraphs: true,
-    ...(signal && { signal }),
-  });
+  const recorder = agent.traces ? new TraceRecorder() : undefined;
   let state: Partial<StateOf> = {};
   let awaiting: ApprovalRequest | undefined;
-  for await (const chunk of stream as AsyncIterable<StreamChunk>) {
-    const [namespace, mode, data] = chunk;
-    // El estado del grafo principal después de cada paso: el último es el final (o el de la pausa).
-    // Al pausarse, el modo values manda además un dato que es solo `{ __interrupt__ }`: ese no es el estado.
-    if (mode === "values" && namespace.length === 0 && !(data as object && "__interrupt__" in (data as object))) state = data as Partial<StateOf>;
-    for (const event of toUiEvents(chunk)) {
-      if (event.type === "approval") awaiting = event.request;
-      yield event;
+  let result: TurnResult | undefined;
+  let failure: unknown;
+  try {
+    // El tipo de `Command` del grafo compilado exige los nombres de nodo exactos; acá solo se usa `resume`.
+    const stream = await agent.graph.stream(input as never, {
+      configurable: { thread_id: parseThreadId(threadId), ...checkpoint },
+      recursionLimit: AGENT_RECURSION_LIMIT,
+      callbacks: recorder ? [tracker, recorder] : [tracker],
+      streamMode: [...STREAM_MODES],
+      subgraphs: true,
+      ...(signal && { signal }),
+    });
+    for await (const chunk of stream as AsyncIterable<StreamChunk>) {
+      const [namespace, mode, data] = chunk;
+      // El estado del grafo principal después de cada paso: el último es el final (o el de la pausa).
+      // Al pausarse, el modo values manda además un dato que es solo `{ __interrupt__ }`: ese no es el estado.
+      if (mode === "values" && namespace.length === 0 && !(data as object && "__interrupt__" in (data as object))) state = data as Partial<StateOf>;
+      for (const event of toUiEvents(chunk)) {
+        if (event.type === "approval") awaiting = event.request;
+        if (event.type === "retry") recorder?.noteRetry(event.target);
+        yield event;
+      }
+    }
+    result = await turnResult(agent, threadId, state, awaiting, tracker, already);
+    if (recorder) result.traceId = recorder.id;
+    yield { type: "done", result };
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    if (recorder && agent.traces) {
+      // Sin resultado ni error: quien leía los eventos dejó de leer (se cerró la página) y el turno quedó a medias.
+      const status: TraceStatus = failure ? (signal?.aborted ? "pending" : "error") : !result ? "pending" : result.awaiting ? "awaiting" : "ok";
+      const route = state.plan?.tasks.map((t) => t.intent) ?? (state.intent ? [state.intent] : []);
+      const error = failure instanceof Error ? `${failure.name}: ${failure.message}` : failure ? String(failure) : undefined;
+      const trace = recorder.finish({ threadId, kind: options.trace?.kind ?? "new", status, route, ...(options.trace?.input !== undefined && { input: options.trace.input }), ...(error && { error }) });
+      saveTrace(agent.traces, trace);
     }
   }
-  yield { type: "done", result: await turnResult(agent, threadId, state, awaiting, tracker, already) };
+}
+
+/** Qué decidió la persona, como texto para la traza de un turno que reanuda una tarjeta. */
+const decisionText = (decision: HumanDecision) =>
+  decision.decision === "reject" && decision.comment ? `reject: ${decision.comment}` : decision.decision;
+
+/** Guarda la traza sin frenar el turno: una falla se avisa en la consola y nada más (fase 11, R3). */
+function saveTrace(sink: TraceSink, trace: Parameters<TraceSink["save"]>[0]) {
+  try {
+    sink.save(trace).catch((error) => console.warn(`[trazas] No se pudo guardar la traza ${trace.id}: ${(error as Error).message}`));
+  } catch (error) {
+    console.warn(`[trazas] No se pudo guardar la traza ${trace.id}: ${(error as Error).message}`);
+  }
 }
 
 type StateOf = {
@@ -181,7 +225,7 @@ export async function* streamRunTurn(agent: TurnAgent, threadId: string, input: 
   const message = new HumanMessage({ content: input, id: randomUUID() });
   yield { type: "turn", kind: "new", humanMessageId: message.id! };
   // El mensaje de la persona es el primero de este turno: lo que ya había más ese mensaje no cuenta como "nuevo".
-  yield* streamInvoke(agent, threadId, { messages: [message] }, status.messages.length + 1, signal);
+  yield* streamInvoke(agent, threadId, { messages: [message] }, status.messages.length + 1, { signal, trace: { kind: "new", input } });
 }
 
 export function runTurn(agent: TurnAgent, threadId: string, input: string): Promise<TurnResult> {
@@ -195,7 +239,7 @@ export function runTurn(agent: TurnAgent, threadId: string, input: string): Prom
 export async function* streamContinueTurn(agent: TurnAgent, threadId: string, signal?: AbortSignal): AsyncGenerator<UiEvent> {
   const status = await getStatus(agent.graph, threadId);
   if (status.awaiting) throw new ThreadAwaitingApprovalError(threadId, status.awaiting);
-  yield* streamInvoke(agent, threadId, null, status.messages.length, signal);
+  yield* streamInvoke(agent, threadId, null, status.messages.length, { signal, trace: { kind: "continue" } });
 }
 
 export function continueTurn(agent: TurnAgent, threadId: string): Promise<TurnResult> {
@@ -217,7 +261,7 @@ export class NothingToDecideError extends Error {
 export async function* streamResumeTurn(agent: TurnAgent, threadId: string, decision: HumanDecision, signal?: AbortSignal): AsyncGenerator<UiEvent> {
   const status = await getStatus(agent.graph, threadId);
   if (!status.awaiting) throw new NothingToDecideError(threadId);
-  yield* streamInvoke(agent, threadId, new Command({ resume: decision }), status.messages.length, signal);
+  yield* streamInvoke(agent, threadId, new Command({ resume: decision }), status.messages.length, { signal, trace: { kind: "resume", input: decisionText(decision) } });
 }
 
 export function resumeTurn(agent: TurnAgent, threadId: string, decision: HumanDecision): Promise<TurnResult> {

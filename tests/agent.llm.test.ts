@@ -24,7 +24,7 @@ describe.skipIf(!enabled)("agente con el modelo real", () => {
     await sql.connect();
   });
   afterAll(async () => {
-    await threads.cleanup(agent.checkpointer);
+    await threads.cleanup(agent.checkpointer, agent.traces);
     await agent.close();
     await sql.end();
   });
