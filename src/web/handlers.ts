@@ -2,7 +2,16 @@ import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import { humanDecisionSchema, type ApprovalRequest } from "../graph/approval.js";
 import { AGENT_RECURSION_LIMIT } from "../graph/limits.js";
-import { NothingToDecideError, streamContinueTurn, streamResumeTurn, streamRunTurn, ThreadPendingError, type TurnAgent } from "../graph/run-turn.js";
+import { BranchIncompleteError, BranchNotFoundError, listBranches, switchBranch, type BranchGraph, type BranchTree } from "../graph/branches.js";
+import {
+  NothingToDecideError,
+  streamContinueTurn,
+  streamResumeTurn,
+  streamRunTurn,
+  ThreadAwaitingApprovalError,
+  ThreadPendingError,
+  type TurnAgent,
+} from "../graph/run-turn.js";
 import { threadIdSchema } from "../graph/thread-id.js";
 import { streamForkTurn, streamReplayTurn, TurnNotFoundError, type HistoryGraph } from "../graph/time-travel.js";
 import { conversationMessages, getStatus, type ThreadGraph, type ThreadSummary } from "../graph/threads.js";
@@ -26,10 +35,12 @@ const memoryIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 const messageIdSchema = z.string().regex(/^[A-Za-z0-9_.:-]{1,128}$/, "El id del mensaje no es válido.");
 const editBodySchema = z.strictObject({ messageId: messageIdSchema, text: messageBodySchema.shape.text });
 const retryBodySchema = z.strictObject({ messageId: messageIdSchema });
+/** La punta de una rama (los ids de checkpoint de LangGraph: uuid). */
+const branchBodySchema = z.strictObject({ checkpointId: z.string().regex(/^[A-Za-z0-9-]{1,64}$/, "El id de la versión no es válido.") });
 
 export interface WebDeps {
-  /** El grafo compilado, con checkpointer (y su historia, para editar y reintentar). */
-  graph: TurnAgent["graph"] & ThreadGraph & HistoryGraph;
+  /** El grafo compilado, con checkpointer (y su historia, para editar, reintentar y cambiar de rama). */
+  graph: TurnAgent["graph"] & ThreadGraph & HistoryGraph & BranchGraph;
   /** Los hilos recientes (con Postgres en la app; en los tests, lo que haga falta). */
   listThreads: () => Promise<ThreadSummary[]>;
   /** La memoria de largo plazo. Sin ella, el panel de memorias dice que no está disponible. */
@@ -49,6 +60,17 @@ export interface ConversationMessage {
 }
 
 /** Lo que devuelve `GET /api/threads/:id`: todo lo necesario para dibujar la página al abrirla o recargarla (R3). */
+/** Lo que devuelve `POST /api/threads/:id/branch` (ramas del hilo): la versión abierta y el hilo como queda. */
+export interface BranchSwitchView {
+  version: number;
+  unchanged: boolean;
+  /** Lo que ejecutó la versión que se dejó y la abierta no tiene: sigue en la base. */
+  leftActions: string[];
+  thread: ThreadView;
+}
+
+export type { BranchTree };
+
 export interface ThreadView {
   threadId: string;
   exists: boolean;
@@ -126,6 +148,41 @@ export function makeHandlers(deps: WebDeps) {
     return stream(request, id.data, (signal) => run(id.data, parsed.data, signal));
   }
 
+  /** Todo lo necesario para dibujar la página de un hilo al abrirla o recargarla (R3). */
+  async function threadView(threadId: string): Promise<ThreadView> {
+    const status = await getStatus(deps.graph, threadId);
+    return {
+      threadId,
+      exists: status.exists,
+      status: status.awaiting ? "awaiting" : status.pending ? "pending" : "ready",
+      running: locks.isRunning(threadId),
+      ...(status.awaiting && { awaiting: status.awaiting }),
+      next: status.next,
+      messages: conversationMessages(status.messages).map((m, i) => ({
+        id: m.id ?? `m${i}`,
+        role: HumanMessage.isInstance(m) ? "human" : "ai",
+        kind: AIMessage.isInstance(m) && m.tool_calls?.length ? "step" : "message",
+        text: m.text,
+      })),
+    };
+  }
+
+  /** Cambia de rama con el hilo ya tomado. Un error conocido vuelve como respuesta (409, 404); uno del sistema, 500. */
+  async function switchOrReject(threadId: string, checkpointId: string): Promise<Response | Omit<BranchSwitchView, "thread">> {
+    try {
+      return await switchBranch(deps.graph, threadId, checkpointId);
+    } catch (error) {
+      if (error instanceof ThreadAwaitingApprovalError) {
+        return jsonError(409, "Este hilo espera tu decisión sobre una acción: resolvela antes de cambiar de versión.");
+      }
+      if (error instanceof ThreadPendingError) return jsonError(409, "Este hilo tiene un turno a medias: continualo antes de cambiar de versión.");
+      if (error instanceof BranchNotFoundError) return jsonError(404, error.message);
+      if (error instanceof BranchIncompleteError) return jsonError(409, error.message);
+      log(`[web] No se pudo cambiar de versión en el hilo ${threadId}`, error);
+      return jsonError(500, "No se pudo cambiar de versión por un problema del sistema.");
+    }
+  }
+
   return {
     /** GET /api/threads */
     async listThreads(): Promise<Response> {
@@ -142,22 +199,7 @@ export function makeHandlers(deps: WebDeps) {
       const id = parseId(rawId);
       if (!id.success) return jsonError(400, id.error.issues[0]!.message);
       try {
-        const status = await getStatus(deps.graph, id.data);
-        const view: ThreadView = {
-          threadId: id.data,
-          exists: status.exists,
-          status: status.awaiting ? "awaiting" : status.pending ? "pending" : "ready",
-          running: locks.isRunning(id.data),
-          ...(status.awaiting && { awaiting: status.awaiting }),
-          next: status.next,
-          messages: conversationMessages(status.messages).map((m, i) => ({
-            id: m.id ?? `m${i}`,
-            role: HumanMessage.isInstance(m) ? "human" : "ai",
-            kind: AIMessage.isInstance(m) && m.tool_calls?.length ? "step" : "message",
-            text: m.text,
-          })),
-        };
-        return Response.json(view);
+        return Response.json(await threadView(id.data));
       } catch (error) {
         log(`[web] No se pudo leer el hilo ${id.data}`, error);
         return jsonError(500, "No se pudo leer el hilo.");
@@ -215,6 +257,49 @@ export function makeHandlers(deps: WebDeps) {
     /** POST /api/threads/:id/retry  { messageId } → SSE (fase 10: reintentar el turno de ese mensaje) */
     async postRetry(request: Request, rawId: string): Promise<Response> {
       return branch(request, rawId, retryBodySchema, (id, body, signal) => streamReplayTurn({ graph: deps.graph }, id, body.messageId, signal));
+    },
+
+    /** GET /api/threads/:id/branches → las ramas del hilo (specs/ramas-del-hilo.md) */
+    async getBranches(rawId: string): Promise<Response> {
+      const id = parseId(rawId);
+      if (!id.success) return jsonError(400, id.error.issues[0]!.message);
+      try {
+        return Response.json(await listBranches(deps.graph, id.data));
+      } catch (error) {
+        log(`[web] No se pudieron leer las versiones del hilo ${id.data}`, error);
+        return jsonError(500, "No se pudieron leer las versiones del hilo.");
+      }
+    },
+
+    /**
+     * POST /api/threads/:id/branch  { checkpointId } → JSON (abre esa rama). No corre ningún turno, pero toma el hilo
+     * como un turno: no se puede cambiar de rama mientras otro pedido lo está usando.
+     */
+    async postBranch(request: Request, rawId: string): Promise<Response> {
+      const rejected = checkMutation(request);
+      if (rejected) return rejected;
+      const id = parseId(rawId);
+      if (!id.success) return jsonError(400, id.error.issues[0]!.message);
+      const body = await readJson(request);
+      if (!body.ok) return body.response;
+      const parsed = branchBodySchema.safeParse(body.value);
+      if (!parsed.success) return jsonError(400, parsed.error.issues[0]!.message);
+      const release = locks.acquire(id.data);
+      if (!release) return jsonError(409, "Este hilo ya tiene un turno en curso. Esperá a que termine.");
+      let result: Awaited<ReturnType<typeof switchOrReject>>;
+      try {
+        result = await switchOrReject(id.data, parsed.data.checkpointId);
+      } finally {
+        release();
+      }
+      if (result instanceof Response) return result;
+      try {
+        const view: BranchSwitchView = { ...result, thread: await threadView(id.data) };
+        return Response.json(view);
+      } catch (error) {
+        log(`[web] No se pudo leer el hilo ${id.data}`, error);
+        return jsonError(500, "No se pudo leer el hilo.");
+      }
     },
 
     /** GET /api/memories */
