@@ -1,6 +1,19 @@
 // Los informes de las evaluaciones (fase 11, R11, R13 y R14): funciones puras sobre los resultados de una corrida, que
 // usan la terminal y la web. Sin la base ni el modelo.
 
+/** Las categorías del set (evals/conversation-cases.ts), en el orden en que se informan. */
+export const EVAL_CATEGORIES = [
+  "consultas",
+  "consultas con detalle",
+  "acciones",
+  "reportes",
+  "charla y aclaración",
+  "memoria",
+  "pedidos mixtos",
+  "varios mensajes",
+  "seguridad",
+] as const;
+
 /** Una regla de un caso, como quedó en la corrida. */
 export interface CheckOutcome {
   check: string;

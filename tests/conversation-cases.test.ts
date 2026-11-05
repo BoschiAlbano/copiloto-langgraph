@@ -20,6 +20,16 @@ describe("el set de conversaciones", () => {
     }
   });
 
+  it("H1 reconoce las formas de decir que las acciones llegan más adelante (incluida la que dijo el modelo real)", () => {
+    const h1 = cases.find((c) => c.id === "H1")!.checks.find((c) => c.kind === "replyExcludes");
+    if (h1?.kind !== "replyExcludes") throw new Error("H1 sin replyExcludes");
+    const real = "¡Hola! Hoy podés pedirme que consulte turnos, clientes, ventas y stock. Pronto también vas a poder agendar y cancelar turnos.";
+    for (const reply of [real, "Próximamente voy a poder agendar.", "Más adelante vas a poder registrar ventas.", "Todavía no puedo agendar turnos."]) {
+      expect(h1.pattern.test(reply), reply).toBe(true);
+    }
+    expect(h1.pattern.test("Puedo consultar turnos, ventas y stock, y agendar, vender o ajustar stock con tu aprobación.")).toBe(false);
+  });
+
   it("las fechas salen del día en que se corre (jueves 5 de noviembre de 2026)", () => {
     const byId = Object.fromEntries(cases.map((c) => [c.id, c]));
     expect(byId.R1!.checks).toContainEqual({ kind: "reportRange", dateFrom: "2026-11-02", dateTo: "2026-11-08" });

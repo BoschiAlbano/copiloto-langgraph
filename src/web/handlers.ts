@@ -18,6 +18,8 @@ import { conversationMessages, getStatus, type ThreadGraph, type ThreadSummary }
 import { deleteMemory, listMemories, type MemoryBank } from "../memory/store.js";
 import { isTraceId, type TraceStore, type TraceSummary } from "../observability/store.js";
 import type { Trace } from "../observability/trace-recorder.js";
+import { compareRuns, EVAL_CATEGORIES, type EvalRun, type EvalRunSummary, type RunComparison } from "../observability/eval-report.js";
+import type { EvalStore } from "../observability/evals-store.js";
 import type { UiEvent } from "./events.js";
 import { checkMutation, jsonError, readJson } from "./guard.js";
 import { ThreadLocks } from "./locks.js";
@@ -49,6 +51,8 @@ export interface WebDeps {
   memory?: MemoryBank;
   /** Dónde guarda su traza cada turno (fase 11). Sin esto, los turnos no dejan trazas. */
   traces?: TraceStore;
+  /** Las corridas del set de evaluación (fase 11). Las lanza la terminal; la web las muestra. */
+  evals?: EvalStore;
   locks?: ThreadLocks;
   /** Dónde se anotan los detalles de un error (en el servidor, nunca en el navegador). */
   log?: (message: string, error?: unknown) => void;
@@ -80,6 +84,12 @@ export interface TraceListView {
   traces: TraceSummary[];
 }
 export type { Trace, TraceSummary };
+
+/** Lo que devuelven `GET /api/evals`, `/api/evals/:id` y `/api/evals/compare` (fase 11, R14). */
+export interface EvalListView {
+  runs: EvalRunSummary[];
+}
+export type { EvalRun, EvalRunSummary, RunComparison };
 
 export interface ThreadView {
   threadId: string;
@@ -345,6 +355,47 @@ export function makeHandlers(deps: WebDeps) {
       } catch (error) {
         log(`[web] No se pudo leer la traza ${id}`, error);
         return jsonError(500, "No se pudo leer la traza.");
+      }
+    },
+
+    /** GET /api/evals → las corridas del set de evaluación, de la más nueva a la más vieja (fase 11, R14) */
+    async listEvals(): Promise<Response> {
+      if (!deps.evals) return jsonError(503, "Las evaluaciones no están disponibles.");
+      try {
+        return Response.json({ runs: await deps.evals.list(100) } satisfies EvalListView);
+      } catch (error) {
+        log("[web] No se pudieron leer las evaluaciones", error);
+        return jsonError(500, "No se pudieron leer las evaluaciones (¿corriste `npm run db:observability`?).");
+      }
+    },
+
+    /** GET /api/evals/:id → una corrida con el resultado de cada caso */
+    async getEval(id: string): Promise<Response> {
+      if (!deps.evals) return jsonError(503, "Las evaluaciones no están disponibles.");
+      if (!isTraceId(id)) return jsonError(400, "El id de la corrida no es válido.");
+      try {
+        const run = await deps.evals.get(id);
+        return run ? Response.json(run) : jsonError(404, "No existe esa corrida.");
+      } catch (error) {
+        log(`[web] No se pudo leer la corrida ${id}`, error);
+        return jsonError(500, "No se pudo leer la corrida.");
+      }
+    },
+
+    /** GET /api/evals/compare?a=<id>&b=<id> → la comparación de dos corridas (A, la de antes; B, la nueva) */
+    async compareEvals(url: URL): Promise<Response> {
+      if (!deps.evals) return jsonError(503, "Las evaluaciones no están disponibles.");
+      const a = url.searchParams.get("a") ?? "";
+      const b = url.searchParams.get("b") ?? "";
+      if (!isTraceId(a) || !isTraceId(b)) return jsonError(400, "Elegí dos corridas para comparar.");
+      if (a === b) return jsonError(400, "Elegí dos corridas distintas.");
+      try {
+        const [runA, runB] = await Promise.all([deps.evals.get(a), deps.evals.get(b)]);
+        if (!runA || !runB) return jsonError(404, "No existe alguna de las dos corridas.");
+        return Response.json(compareRuns(runA, runB, EVAL_CATEGORIES) satisfies RunComparison);
+      } catch (error) {
+        log(`[web] No se pudieron comparar las corridas ${a} y ${b}`, error);
+        return jsonError(500, "No se pudieron comparar las corridas.");
       }
     },
 

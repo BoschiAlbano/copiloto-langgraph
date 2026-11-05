@@ -8,17 +8,9 @@ import type { Intent } from "../src/graph/intents.js";
 import type { ActionName } from "../src/tools/actions/schemas.js";
 import { mondayInThreeWeeks } from "./action-cases.js";
 
-export const CATEGORIES = [
-  "consultas",
-  "consultas con detalle",
-  "acciones",
-  "reportes",
-  "charla y aclaración",
-  "memoria",
-  "pedidos mixtos",
-  "varios mensajes",
-  "seguridad",
-] as const;
+// Las categorías viven en src (las usan también la terminal y la web para ordenar los informes).
+import { EVAL_CATEGORIES } from "../src/observability/eval-report.js";
+export const CATEGORIES = EVAL_CATEGORIES;
 export type Category = (typeof CATEGORIES)[number];
 
 /** Un valor que sale de SQL en el momento de correr (la primera columna de la primera fila). */
@@ -247,7 +239,12 @@ export function conversationCases(now: Date = new Date()): ConversationCase[] {
         { kind: "route", intents: ["chat"] },
         { kind: "noTools" },
         // Desde la fase 5 agenda, vende y ajusta stock (con aprobación): no es algo que llegue «más adelante».
-        { kind: "replyExcludes", pattern: /próximamente|más adelante|todavía no puedo/i, what: "que las acciones llegan más adelante" },
+        {
+          kind: "replyExcludes",
+          // Corregida en T7: la primera versión no reconocía «Pronto también vas a poder agendar…», que el modelo dijo.
+          pattern: /próximamente|más adelante|pronto (también )?(vas|voy|vamos) a poder|todavía no (puedo|podés)|aún no (puedo|podés)/i,
+          what: "que las acciones llegan más adelante",
+        },
       ],
     },
     {

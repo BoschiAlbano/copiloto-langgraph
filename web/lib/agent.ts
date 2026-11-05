@@ -22,6 +22,7 @@ function init() {
   const handlers = makeHandlers({
     graph: agent.graph,
     traces: agent.traces,
+    evals: agent.evals,
     listThreads: () => listThreads({ pool: agent.pool, graph: agent.graph }),
     memory: agent.memory,
   })
