@@ -18,8 +18,11 @@ Convención de los diagramas: **línea continua** = arista fija (siempre ocurre)
 | 8 | 9 en el principal (los de la fase 7 más `load_memory` y `memory`); subgrafos sin cambios | 9 | 7 | 16 (más 4, 10 y 8 dentro de los subgrafos) | principal: los de la fase 7 más `businessContext` (compartido con consultas y acciones); privados, igual que en la fase 7 | Memoria de largo plazo: un Store de Postgres que no depende del hilo, leído al empezar cada turno |
 | 9 | 9 (los mismos) | 9 | 7 | 16 (más 4, 10 y 8 dentro de los subgrafos) | los mismos que en la fase 8 | Streaming: el turno corre con `graph.stream` (modos `values`, `updates` y `messages`, con subgrafos) y un chat web lo muestra en vivo. Cambia cómo se invoca el grafo, no su forma |
 | 10 | 9 en el principal (los mismos); consultas y acciones suman `recover` (3 y 6 nodos) | 9 | 7 | 16 (más 6, 12 y 8 dentro de los subgrafos) | los mismos que en la fase 9 | Errores y viaje en el tiempo: reintentos de las lecturas (`retryPolicy` en `load_memory`, `withRetry` en herramientas y secciones), un tope de 4 rondas que sale por `recover`, segundo intento ante salidas mal formadas, y bifurcar el hilo desde un checkpoint para editar o reintentar un turno |
+| 11 | 9 en el principal (los mismos); subgrafos sin cambios | 9 | 7 | 16 (más 6, 12 y 8 dentro de los subgrafos) | los mismos que en la fase 10 | Observabilidad: un callback más (`TraceRecorder`) arma el árbol de cada turno a partir de lo que informa LangGraph, y un set de 36 conversaciones lo evalúa. Cambia cómo se observa el grafo, no su forma |
 
 Qué cambió de la fase 1 a la 2: el nodo `chat` pasó a llamarse `agent` y ahora puede pedir herramientas; apareció el nodo `tools`; la arista `chat → END` se volvió condicional (`agent → END` solo si no hay llamadas pendientes) y se sumó `tools → agent`, que cierra el ciclo.
+
+Qué cambió de la fase 10 a la 11: nada en nodos, aristas ni estado. Cada turno pasa un callback más, `TraceRecorder`, que escucha lo que LangGraph informa (cada nodo como una cadena con su padre, cada llamada al modelo y cada herramienta) y arma el árbol del turno. Al terminar, el árbol se guarda en Postgres (esquema `observability`) y se ve en la web, en `/traces`. El resultado del turno suma `traceId` y las fechas del reporte. Los prompts se pueden leer de otra carpeta (`COPILOT_PROMPTS_DIR`), para comparar versiones con el set de evaluación.
 
 Qué cambió de la fase 9 a la 10: el grafo principal tiene la misma forma, pero `load_memory` ganó una **`retryPolicy`**: si la lectura del Store falla por una caída transitoria, LangGraph repite el nodo. Los subgrafos de consultas y de acciones suman un nodo, **`recover`**, al que `routeAfterAgent` manda cuando la tarea llega a la 5.ª ronda de herramientas o repite una llamada idéntica. El turno termina con un mensaje del código en vez de un `GraphRecursionError`. El modo `custom` se sumó al stream (los avisos de reintento). Y el hilo ya no es una línea: editar o reintentar un turno lo **bifurca** desde el checkpoint en que entró ese mensaje (`updateState` como `__start__`).
 
@@ -564,9 +567,43 @@ flowchart LR
 
 ---
 
+## Fase 11: observabilidad y evaluaciones (`fase-11`)
+
+El grafo es el de la fase 10. Lo nuevo es cómo se lo observa: lo que LangGraph informa por los callbacks se vuelve un árbol por turno.
+
+```mermaid
+flowchart LR
+    G[["grafo de la fase 10<br/>graph.stream(…, callbacks)"]] -->|"chain start/end<br/>(nodo + padre + namespace)"| R["TraceRecorder"]
+    G -->|"chat model start · llm end<br/>(modelo, tokens)"| R
+    G -->|"tool start/end<br/>(argumentos, resultado)"| R
+    G -->|"custom · retry"| S["streamInvoke"]
+    S -->|"noteRetry"| R
+    R -->|"al terminar: el árbol"| DB[("Postgres · observability.traces")]
+    DB --> W["/traces · /traces/:id"]
+```
+
+**Qué se queda y qué se descarta de los callbacks:**
+
+| Llega como | Ejemplo | En la traza |
+| --- | --- | --- |
+| Cadena sin padre | `LangGraph` | La raíz: el turno |
+| Cadena con el nombre de su `langgraph_node` | `router`, `query_graph`, `agent`, `tools` | Un paso (nodo) |
+| `LangGraph` adentro de un nodo | el grafo de `query_graph` | Se funde con su nodo: sus hijos cuelgan de `query_graph` |
+| Otra cadena | `ChannelWrite`, `Branch`, `RunnableSequence`, `__start__` | Se descarta; sus hijos cuelgan del ancestro que quedó |
+| Llamada al modelo | `claude-haiku-5-5` | Un paso con modelo, tokens y costo |
+| Herramienta | `getStockLevels` | Un paso con argumentos, resultado (recortado) y reintentos |
+
+| Situación | Cómo queda la traza |
+| --- | --- |
+| Consulta con herramienta | `turno → load_memory, router(modelo), supervisor, query_graph(agent(modelo), tools(herramienta), agent(modelo)), supervisor` |
+| Acción que se pausa | `await_approval` queda «en pausa» (no es un error) y la traza, «esperó una decisión»; decidir es otro turno, con su propia traza |
+| Corte (se cerró la página) | La traza queda «a medias», con los pasos que no terminaron |
+| Error | El nodo que falló, con el error; la traza, «con error» |
+
+---
+
 ## Próximas fases (planeado, aún no existe)
 
 | Fase | Cambio previsto en el grafo |
 | --- | --- |
-| 11 | Trazas locales de cada ejecución (pasos, herramientas y tokens) con callbacks y eventos del stream, y un set de evaluaciones que se corre por comando. Cambia cómo se observa el grafo, no su forma |
 | 12 | El grafo corre en el servidor local de LangGraph, con límites de tiempo por nodo y la guía de operación |

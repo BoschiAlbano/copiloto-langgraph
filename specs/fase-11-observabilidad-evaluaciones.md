@@ -1,6 +1,6 @@
 # Fase 11: Observabilidad y evaluaciones
 
-Estado: **en curso** (spec aprobada)
+Estado: **terminada** (etiqueta `fase-11`)
 
 ## Objetivo
 Saber si el copiloto funciona bien y enterarse cuando un cambio lo empeora. Para eso, dos herramientas:
@@ -108,23 +108,23 @@ Hay cadenas internas que no son nodos (`ChannelWrite`, `Branch`, `RunnableSequen
   Desde la lista se eligen dos corridas para compararlas. Las corridas se lanzan desde la terminal (`npm run eval`): la web las muestra, no las corre.
 
 ## Criterios de aceptación
-- [ ] CA1 (trazas): con modelos falsos, un turno de cada tipo (consulta con herramienta, acción pausada y decidida, reporte, editar y reintentar) deja una traza con su árbol:
+- [x] CA1 (trazas): con modelos falsos, un turno de cada tipo (consulta con herramienta, acción pausada y decidida, reporte, editar y reintentar) deja una traza con su árbol:
   - los nodos de los subgrafos cuelgan de su subgrafo;
   - la llamada al modelo trae sus tokens y la herramienta, sus argumentos;
   - los reintentos se cuentan;
   - un turno que falla deja una traza con el error.
-- [ ] CA2 (no rompe): si guardar la traza falla, el turno termina igual y queda un aviso en la consola.
-- [ ] CA3 (web): en el navegador, después de una consulta real, «Ver traza» abre su línea de tiempo con el router, el agente, la herramienta y las llamadas al modelo, con tokens que coinciden con el resumen del turno. La lista filtra por hilo y por errores. Funciona en tema claro y oscuro y no se desborda en el celular.
-- [ ] CA4 (set): hay al menos 36 casos en 9 categorías, congelados en `evals/conversation-cases.ts`. Cada regla tiene un test sin modelo, que la prueba con una salida que cumple y otra que no.
-- [ ] CA5 (informe y comparación):
+- [x] CA2 (no rompe): si guardar la traza falla, el turno termina igual y queda un aviso en la consola.
+- [x] CA3 (web): en el navegador, después de una consulta real, «Ver traza» abre su línea de tiempo con el router, el agente, la herramienta y las llamadas al modelo, con tokens que coinciden con el resumen del turno. La lista filtra por hilo y por errores. Funciona en tema claro y oscuro y no se desborda en el celular.
+- [x] CA4 (set): hay al menos 36 casos en 9 categorías, congelados en `evals/conversation-cases.ts`. Cada regla tiene un test sin modelo, que la prueba con una salida que cumple y otra que no.
+- [x] CA5 (informe y comparación):
   - `npm run eval` da aciertos por categoría y guarda el JSON;
   - `--compare` con una versión que empeora a propósito un prompt (por ejemplo, un router sin los ejemplos de pedidos mixtos) muestra la caída en esa categoría y nombra los casos que cambiaron;
   - con una versión idéntica a la actual, no muestra cambios estables.
-- [ ] CA6 (costo y tiempo), se mide:
+- [x] CA6 (costo y tiempo), se mide:
   - cuánto cuesta y cuánto tarda una corrida del set con Haiku y con Sonnet como agente;
   - cuánto suma trazar a un turno (tiempo, no tokens: trazar no llama al modelo).
-- [ ] CA7: pasan los tests de las fases 2 a 10 y los nuevos, `npm test`, los typecheck, `npm run web:build` y las pruebas del navegador. La documentación queda al día: README, plan, mapa del grafo y `/doc`.
-- [ ] CA8 (evaluaciones en la web): en el navegador, `/evals` lista las corridas; el informe de una muestra los aciertos por categoría y lleva a la traza de un caso que falló; la comparación de dos corridas muestra los casos que cambiaron. Funciona en tema claro y oscuro y no se desborda en el celular.
+- [x] CA7: pasan los tests de las fases 2 a 10 y los nuevos, `npm test`, los typecheck, `npm run web:build` y las pruebas del navegador. La documentación queda al día: README, plan, mapa del grafo y `/doc`.
+- [x] CA8 (evaluaciones en la web): en el navegador, `/evals` lista las corridas; el informe de una muestra los aciertos por categoría y lleva a la traza de un caso que falló; la comparación de dos corridas muestra los casos que cambiaron. Funciona en tema claro y oscuro y no se desborda en el celular.
 
 ## Fuera de alcance
 - Un modelo que juzgue las respuestas («LLM como juez»): las reglas alcanzan, y dan un resultado repetible y sin costo.
@@ -324,3 +324,12 @@ Haiku 5.5 en todos los roles salvo donde se dice, el mismo día y con los mismos
 - **Una corrida del set con Haiku cuesta unos 5 centavos de dólar**: se puede correr antes de cada cambio de prompt. Con Sonnet como agente cuesta unas 13 veces más (US$ 0,62), y conviene para validar un cambio importante antes de pasarlo a producción.
 - **Con Sonnet, el set tardó un poco más** (3 min 13 s contra 2 min 36 s por corrida con Haiku) y dio los mismos resultados: solo falló H1, por el prompt.
 - **Trazar no cuesta tokens y no se nota en el tiempo.** Suma 0,18 ms a un turno que con el modelo real tarda de 2 a 10 segundos. La escritura en Postgres (3,4 ms) va aparte.
+
+## Qué aprendí
+- **LangGraph ya cuenta todo lo que pasa; hay que saber escucharlo.** Cada nodo llega a los callbacks como una cadena con su padre y su `langgraph_node`, también adentro de los subgrafos, y cada llamada al modelo y cada herramienta cuelgan del nodo que las hizo. Con un callback propio (como `UsageTracker` desde la fase 2) alcanza para armar el árbol entero de un turno, sin tocar un solo nodo. Lo difícil es el ruido: la mayoría de las cadenas son piezas internas (`ChannelWrite`, `Branch`, `RunnableSequence`), y el grafo de cada subgrafo aparece como un nivel más que no aporta.
+- **Una traza sirve si coincide con lo que la persona vio.** Los tokens de la traza son los del resumen del turno, los reintentos son los que se vieron en vivo, y la pausa de aprobación aparece «en pausa», no como un error. Los avisos que viajan por el stream llegan tarde (un reintento puede llegar cuando la herramienta ya terminó): hay que asociarlos por nombre, no por «lo que está corriendo».
+- **Reglas en vez de un modelo juez, y la respuesta correcta desde SQL.** Una regla da siempre el mismo resultado y no cuesta nada. Las cifras correctas salen de la base en el momento, así que el set sirve con cualquier seed y cualquier fecha. Lo que una regla no ve es la intención: H1 pasó dos veces con «pronto vas a poder», hasta que se leyó la respuesta. Por eso el informe muestra el texto, y no solo si pasó.
+- **El set encontró un error que nadie había visto en ocho fases.** El prompt de charla de la fase 3 sigue diciendo que las acciones llegan «próximamente». Ningún test lo miraba, porque cada uno probaba su pieza; una conversación de punta a punta lo vio en la primera corrida.
+- **Comparar dos versiones de un prompt a veces muestra que algo sobra.** Sacarle al router su sección para separar pedidos no empeoró nada: el esquema de salida y la primera línea ya lo decían. Para leer una comparación, también importa lo que no cambió, y el costo por caso.
+- **El azar del modelo se controla con mayorías, no con una corrida.** Un caso «cambió» solo si cambió en la mayoría de las corridas; un empate no cuenta. Con Haiku, el set fue estable en 3 corridas: los únicos fallos (H1) fallaron siempre.
+- Dudas abiertas: si conviene adoptar `chat-con-acciones` y sacar la sección redundante del router (las dos son cambios de prompt, con su comparación hecha); si las evaluaciones deberían correr con la API Batch (la mitad del precio, sin apuro); y si la fase 12, con el servidor de LangGraph, trae su propio visor de trazas, que conviviría con este.
