@@ -46,6 +46,8 @@ export async function cleanup(threadIds: string[]) {
   for (const table of ["checkpoint_writes", "checkpoint_blobs", "checkpoints"]) {
     await sql(`DELETE FROM "${CHECKPOINT_SCHEMA}".${table} WHERE thread_id = ANY($1)`, [threadIds])
   }
+  // Desde la fase 11, cada turno deja su traza.
+  await sql(`DELETE FROM observability.traces WHERE thread_id = ANY($1)`, [threadIds]).catch(() => undefined)
 }
 
 export async function ask(page: Page, text: string) {

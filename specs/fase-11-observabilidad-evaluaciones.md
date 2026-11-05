@@ -305,3 +305,22 @@ Una tarea = un commit en la rama `dev/fase-11`.
 - **La regla de H1 se corrigió en T7, sin tocar ningún prompt.** En las dos corridas de prueba de la categoría, H1 pasó, pero el informe mostró la respuesta: «Pronto también vas a poder agendar y cancelar turnos, registrar ventas…». Era justo el error que el caso quiere detectar (el prompt de charla cree que las acciones no existen todavía). La regla buscaba «próximamente», «más adelante» o «todavía no puedo», y el modelo lo dijo de otra forma. La intención del caso no cambió; la regla ahora reconoce también «pronto vas a poder» y «aún no podés», con un test que usa la respuesta real. Ver el texto que contestó, y no solo si pasó, es para lo que el informe lo muestra.
 - **Comparar dos corridas en la web es un formulario común** (`GET /evals/compare?a=…&b=…`), sin JavaScript: elige por defecto las dos más nuevas. Cada caso del informe es un `<details>` que viene abierto si falló o fue inestable.
 - **Después de agregar rutas en `src/web/handlers.ts`, hay que reiniciar `npm run web`.** `web/lib/agent.ts` guarda los handlers en `globalThis` para no abrir pools nuevos en cada recarga en caliente, y así sigue usando los de antes. Ya pasaba desde la fase 9 con los cambios en `src/graph`: el README lo dice.
+- **El set encontró un error real desde la primera corrida.** H1 falló en las tres corridas con Haiku («Pronto también vas a poder agendar…») y en la de Sonnet («Más adelante…»): el prompt de charla, escrito en la fase 3, dice literalmente que agendar, vender y ajustar stock llegan «próximamente». Fue lo único que falló: 105 de 108 con Haiku y 35 de 36 con Sonnet. La corrección candidata (`evals/prompts/chat-con-acciones`) lleva H1 de 0/3 a 3/3 sin cambiar el resto de la categoría. **No se adoptó todavía**: cambiar un prompt es una decisión aparte, y para eso está la comparación.
+- **El primer empeoramiento a propósito no empeoró nada** (T8). Al router se le sacó la sección «Cuándo separar en tareas» y se le pidió una sola tarea, y siguió separando los cuatro pedidos mixtos en las tres corridas. La primera línea del prompt («si pide varias cosas de distinto tipo, separarlas en tareas») y la descripción del esquema de salida («las partes del último mensaje, en el orden en que se pidieron») ya lo piden: la sección era redundante, y sacarla ahorra unos 200 tokens por turno del router. Para el CA5 se usó un empeoramiento que sí pesa: una regla equivocada en el planificador de reportes («el mes» es el mes anterior). Reportes cayó de 12/12 a 9/12, y la comparación nombró R4 con el período equivocado como motivo.
+- **Las pruebas del navegador de las evaluaciones cargan dos corridas sintéticas en la base** (y la traza de un caso), en vez de correr el set: así no dependen de lo que haya, no gastan modelo y prueban la lista, el informe, el link a la traza del caso que falló y la comparación. La de trazas sí usa un turno real (una consulta de stock), y comprueba que los tokens de la traza sean los del resumen del turno.
+
+## Medición (CA6)
+Haiku 5.5 en todos los roles salvo donde se dice, el mismo día y con los mismos datos.
+
+| Qué | Casos | Aciertos | Tokens (entrada → salida) | Costo | Tiempo |
+| --- | --- | --- | --- | --- | --- |
+| El set, Haiku, 3 corridas | 108 | 105 (97 %) | 1.175.537 → 55.666 | US$ 0,145 | 467 s |
+| **Una corrida del set, Haiku** | 36 | 35 | ~392.000 → 18.600 | **~US$ 0,05** | ~2 min 36 s |
+| **Una corrida del set, Sonnet como agente** | 36 | 35 (97 %) | 384.218 → 20.477 | **US$ 0,62** | 3 min 13 s |
+| Una comparación de una categoría (`--compare --only … --runs 3`) | 24 | — | — | ~US$ 0,01 | 2 a 4 min |
+| Trazar un turno (sin modelo: lo que suma el callback y armar el árbol) | 100 turnos | — | 0 | 0 | +0,18 ms por turno |
+| Guardar una traza en Postgres (el turno no la espera) | 20 | — | — | — | 3,4 ms |
+
+- **Una corrida del set con Haiku cuesta unos 5 centavos de dólar**: se puede correr antes de cada cambio de prompt. Con Sonnet como agente cuesta unas 13 veces más (US$ 0,62), y conviene para validar un cambio importante antes de pasarlo a producción.
+- **Con Sonnet, el set tardó un poco más** (3 min 13 s contra 2 min 36 s por corrida con Haiku) y dio los mismos resultados: solo falló H1, por el prompt.
+- **Trazar no cuesta tokens y no se nota en el tiempo.** Suma 0,18 ms a un turno que con el modelo real tarda de 2 a 10 segundos. La escritura en Postgres (3,4 ms) va aparte.
