@@ -6,7 +6,8 @@ import type { PageStatus } from "@copilot/web/turn-view"
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupText, InputGroupTextarea } from "@/components/ui/input-group"
 import { Spinner } from "@/components/ui/spinner"
 
-const MAX_CHARS = 4000
+/** Lo mismo que acepta el servidor (también al editar un mensaje). */
+export const MAX_CHARS = 4000
 
 const PLACEHOLDER: Record<PageStatus, string> = {
   ready: "Preguntá por turnos, ventas o stock, pedí una acción o un reporte…",

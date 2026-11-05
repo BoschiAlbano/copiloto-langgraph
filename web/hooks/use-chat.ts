@@ -8,14 +8,16 @@ import {
   connectionLost,
   fromThreadView,
   startContinuation,
+  startFork,
   startMessage,
   type PageState,
 } from "@copilot/web/turn-view"
 import { ApiError, streamTurn } from "@/lib/api"
 
 /**
- * El estado de la página de un hilo y lo que la persona puede hacer: mandar un mensaje, decidir sobre la tarjeta o
- * continuar un turno a medias. Toda la lógica de "qué se ve" está en el reductor (`@copilot/web/turn-view`).
+ * El estado de la página de un hilo y lo que la persona puede hacer: mandar un mensaje, decidir sobre la tarjeta,
+ * continuar un turno a medias, o editar o reintentar un turno anterior (fase 10). Toda la lógica de "qué se ve" está
+ * en el reductor (`@copilot/web/turn-view`).
  */
 export function useChat(initial: ThreadView, { onTurnEnd }: { onTurnEnd?: () => void } = {}) {
   const [state, setState] = React.useState<PageState>(() => fromThreadView(initial))
@@ -58,7 +60,12 @@ export function useChat(initial: ThreadView, { onTurnEnd }: { onTurnEnd?: () => 
     [run, threadPath],
   )
   const resume = React.useCallback(() => run((s) => startContinuation(s), `${threadPath}/continue`, {}), [run, threadPath])
+  const edit = React.useCallback(
+    (messageId: string, text: string) => run((s) => startFork(s, messageId, text), `${threadPath}/edit`, { messageId, text }),
+    [run, threadPath],
+  )
+  const retry = React.useCallback((messageId: string) => run((s) => startFork(s, messageId), `${threadPath}/retry`, { messageId }), [run, threadPath])
   const dismissNotice = React.useCallback(() => setState((s) => ({ ...s, notice: undefined })), [])
 
-  return { state, send, decide, resume, dismissNotice }
+  return { state, send, decide, resume, edit, retry, dismissNotice }
 }

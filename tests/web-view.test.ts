@@ -3,7 +3,7 @@ import type { ApprovalRequest } from "../src/graph/approval.js";
 import type { TurnResult } from "../src/graph/run-turn.js";
 import type { UiEvent } from "../src/web/events.js";
 import type { ThreadView } from "../src/web/handlers.js";
-import { applyEvent, connectionLost, fromThreadView, startContinuation, startMessage, type PageState } from "../src/web/turn-view.js";
+import { applyEvent, connectionLost, fromThreadView, retryTargets, startContinuation, startFork, startMessage, type PageState } from "../src/web/turn-view.js";
 
 // Fase 9 (T4): el reductor de la página. Decide qué se ve; los componentes solo lo dibujan.
 
@@ -40,7 +40,7 @@ describe("abrir o recargar la página", () => {
     expect(state.status).toBe("awaiting");
     expect(state.awaiting).toBe(card);
     expect(state.items).toEqual([
-      { kind: "human", id: "1", text: "sumá 5 ceras" },
+      { kind: "human", id: "1", text: "sumá 5 ceras", messageId: "1" },
       { kind: "history", id: "2", text: "Voy a buscar la cera.", step: true },
     ]);
   });
@@ -153,5 +153,63 @@ describe("la tarjeta y «Continuar»", () => {
     // Si no había nada corriendo, no cambia nada.
     const idle = fromThreadView(view());
     expect(connectionLost(idle)).toBe(idle);
+  });
+});
+
+describe("editar y reintentar (fase 10, R10 a R13)", () => {
+  const saved = (): PageState =>
+    fromThreadView(
+      view({
+        messages: [
+          { id: "m1", role: "human", kind: "message", text: "¿turnos mañana?" },
+          { id: "m2", role: "ai", kind: "step", text: "Busco la agenda." },
+          { id: "m3", role: "ai", kind: "message", text: "Mañana hay 3 turnos." },
+          { id: "m4", role: "human", kind: "message", text: "sumá 5 ceras" },
+          { id: "m5", role: "ai", kind: "message", text: "Listo: sumé 5." },
+        ],
+      }),
+    );
+
+  it("el evento turn le pone su id del hilo al mensaje recién mandado, sin cambiar el id de la página", () => {
+    const sent = startMessage(fromThreadView(view()), "hola");
+    const local = sent.items[0]!.id;
+    const state = applyEvent(sent, { type: "turn", kind: "new", humanMessageId: "srv-1" });
+    expect(state.items[0]).toEqual({ kind: "human", id: local, text: "hola", messageId: "srv-1" });
+  });
+
+  it("editar recorta la conversación desde ese mensaje y empieza un turno con el texto nuevo", () => {
+    const state = startFork(saved(), "m1", "¿turnos pasado mañana?");
+    expect(state.status).toBe("running");
+    expect(state.items.map((i) => i.kind)).toEqual(["human", "turn"]);
+    expect(state.items[0]).toMatchObject({ text: "¿turnos pasado mañana?", branch: { kind: "edit", replacedActions: [] } });
+    expect(state.items[0]).not.toHaveProperty("messageId"); // hasta que llegue el evento turn
+    const after = applyEvent(state, { type: "turn", kind: "edit", humanMessageId: "m9" });
+    expect(after.items[0]).toMatchObject({ messageId: "m9", branch: { kind: "edit" } });
+  });
+
+  it("reintentar repite el mismo texto; la marca avisa la acción que ya se había hecho", () => {
+    const state = startFork(saved(), "m4");
+    expect(state.items.map((i) => i.kind)).toEqual(["human", "history", "history", "human", "turn"]);
+    expect(state.items[3]).toMatchObject({ text: "sumá 5 ceras", branch: { kind: "retry" } });
+    const after = applyEvent(state, { type: "turn", kind: "retry", humanMessageId: "m6", replacedActions: ["Sumé 5 a Cera (stock: 17)."] });
+    expect(after.items[3]).toMatchObject({ messageId: "m6", branch: { kind: "retry", replacedActions: ["Sumé 5 a Cera (stock: 17)."] } });
+  });
+
+  it("un mensaje que no está en la página no cambia nada; un 409 vuelve atrás (lo hace el hook con el estado anterior)", () => {
+    const state = saved();
+    expect(startFork(state, "no-existe", "x")).toBe(state);
+  });
+
+  it("«Reintentar» va en la última respuesta de cada turno, con el id del mensaje que lo empezó", () => {
+    expect([...retryTargets(saved().items)]).toEqual([
+      [2, "m1"],
+      [4, "m4"],
+    ]);
+    // Un turno de esta sesión: el botón va en el turno, recién cuando el mensaje tiene su id.
+    const sent = startMessage(saved(), "¿y el stock?");
+    expect(retryTargets(sent.items).get(6)).toBeUndefined();
+    expect(retryTargets(applyEvent(sent, { type: "turn", kind: "new", humanMessageId: "m7" }).items).get(6)).toBe("m7");
+    // Un mensaje sin respuesta (por ejemplo, un error antes de empezar) no tiene «Reintentar».
+    expect(retryTargets([{ kind: "human", id: "a", text: "x", messageId: "a" }]).size).toBe(0);
   });
 });

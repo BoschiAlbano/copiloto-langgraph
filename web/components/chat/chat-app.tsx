@@ -4,13 +4,11 @@ import * as React from "react"
 import { PlayIcon, TriangleAlertIcon, XIcon } from "lucide-react"
 import type { ThreadSummary } from "@copilot/graph/threads"
 import type { ThreadView } from "@copilot/web/handlers"
-import type { PageStatus } from "@copilot/web/turn-view"
+import { retryTargets, type PageStatus } from "@copilot/web/turn-view"
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Bubble, BubbleContent } from "@/components/ui/bubble"
 import { Button } from "@/components/ui/button"
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
-import { Message, MessageContent } from "@/components/ui/message"
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -29,8 +27,9 @@ import { costOf, usd } from "@/lib/format"
 import { AppSidebar } from "./app-sidebar"
 import { ApprovalCard } from "./approval-card"
 import { Composer } from "./composer"
+import { HumanMessage } from "./human-message"
 import { MemorySheet } from "./memory-sheet"
-import { CopilotText, TurnView } from "./turn"
+import { CopilotText, RetryButton, TurnView } from "./turn"
 
 const STATUS: Record<PageStatus, { label: string; variant: "secondary" | "outline" | "destructive" | "default" }> = {
   ready: { label: "Listo", variant: "secondary" },
@@ -47,11 +46,14 @@ export function ChatApp({ initial, initialThreads }: { initial: ThreadView; init
   const refreshThreads = React.useCallback(() => {
     fetchThreads().then(setThreads).catch(() => undefined)
   }, [])
-  const { state, send, decide, resume, dismissNotice } = useChat(initial, { onTurnEnd: refreshThreads })
+  const { state, send, decide, resume, edit, retry, dismissNotice } = useChat(initial, { onTurnEnd: refreshThreads })
   const sessionCost = usd(costOf(state.session))
   const status = STATUS[state.status]
   const first = state.items.find((i) => i.kind === "human")
   const title = first?.kind === "human" ? first.text : "Conversación nueva"
+  // Editar y reintentar (fase 10): solo con el hilo listo, igual que un mensaje nuevo.
+  const canBranch = state.status === "ready"
+  const retries = retryTargets(state.items)
 
   return (
     <SidebarProvider>
@@ -95,27 +97,24 @@ export function ChatApp({ initial, initialThreads }: { initial: ThreadView; init
                     </Empty>
                   </MessageScrollerItem>
                 )}
-                {state.items.map((item) => (
-                  <MessageScrollerItem key={item.id} messageId={item.id} scrollAnchor={item.kind === "human"}>
-                    {item.kind === "human" ? (
-                      <Message align="end">
-                        <MessageContent>
-                          <Bubble variant="secondary" align="end">
-                            <BubbleContent className="text-[0.95rem] whitespace-pre-wrap">{item.text}</BubbleContent>
-                          </Bubble>
-                        </MessageContent>
-                      </Message>
-                    ) : item.kind === "history" ? (
-                      item.step ? (
-                        <p className="pl-1 text-sm text-muted-foreground">{item.text}</p>
+                {state.items.map((item, index) => {
+                  const target = canBranch ? retries.get(index) : undefined
+                  const onRetry = target ? () => retry(target) : undefined
+                  return (
+                    <MessageScrollerItem key={item.id} messageId={item.id} scrollAnchor={item.kind === "human"}>
+                      {item.kind === "human" ? (
+                        <HumanMessage item={item} canEdit={canBranch} onEdit={edit} />
+                      ) : item.kind === "history" ? (
+                        <div className="flex flex-col gap-2">
+                          {item.step ? <p className="pl-1 text-sm text-muted-foreground">{item.text}</p> : <CopilotText text={item.text} />}
+                          {onRetry && <RetryButton onRetry={onRetry} />}
+                        </div>
                       ) : (
-                        <CopilotText text={item.text} />
-                      )
-                    ) : (
-                      <TurnView turn={item} sessionCost={sessionCost} />
-                    )}
-                  </MessageScrollerItem>
-                ))}
+                        <TurnView turn={item} sessionCost={sessionCost} onRetry={onRetry} />
+                      )}
+                    </MessageScrollerItem>
+                  )
+                })}
                 {state.awaiting && (
                   <MessageScrollerItem messageId={`card-${state.awaiting.action.id}`}>
                     <ApprovalCard request={state.awaiting} busy={state.status === "running"} onDecide={decide} />

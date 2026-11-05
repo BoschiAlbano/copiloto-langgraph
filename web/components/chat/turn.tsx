@@ -11,6 +11,7 @@ import {
   FileBarChartIcon,
   GitBranchIcon,
   MessageSquareTextIcon,
+  RotateCcwIcon,
   RotateCwIcon,
   UserCheckIcon,
 } from "lucide-react"
@@ -18,6 +19,7 @@ import type { ChatItem, TurnPart } from "@copilot/web/turn-view"
 import { AGENT_LABELS, INTENT_LABELS, SECTION_LABELS, describeRetryTarget, describeTool, isFallbackRoute } from "@copilot/web/turn-view"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Bubble, BubbleContent } from "@/components/ui/bubble"
+import { Button } from "@/components/ui/button"
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
 import { Message, MessageContent, MessageHeader } from "@/components/ui/message"
 import {
@@ -209,7 +211,19 @@ function Part({ part }: { part: TurnPart }) {
   return null
 }
 
-export function TurnView({ turn, sessionCost }: { turn: Turn; sessionCost: string }) {
+/** «Reintentar» al pie de una respuesta (fase 10, R11): vuelve a correr el turno desde su inicio, con el mismo mensaje. */
+export function RetryButton({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="-mt-1 flex">
+      <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={onRetry}>
+        <RotateCcwIcon data-icon="inline-start" />
+        Reintentar
+      </Button>
+    </div>
+  )
+}
+
+export function TurnView({ turn, sessionCost, onRetry }: { turn: Turn; sessionCost: string; onRetry?: () => void }) {
   const parts = groups(turn.parts)
   return (
     <div className="flex flex-col gap-4">
@@ -242,6 +256,7 @@ export function TurnView({ turn, sessionCost }: { turn: Turn; sessionCost: strin
         </Alert>
       )}
       {turn.result && <TurnSummary result={turn.result} sessionCost={sessionCost} />}
+      {onRetry && <RetryButton onRetry={onRetry} />}
     </div>
   )
 }

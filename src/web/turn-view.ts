@@ -62,8 +62,19 @@ export type TurnPart =
   | { type: "decision"; text: string };
 
 /** Lo que se ve en la conversación. */
+/** Cómo nació un mensaje de la persona que reemplazó a otro (fase 10): editado o reintentado. */
+export interface Branch {
+  kind: "edit" | "retry";
+  /** Lo que la rama anterior ya había ejecutado (el texto del resultado): no se deshace. */
+  replacedActions: string[];
+}
+
 export type ChatItem =
-  | { kind: "human"; id: string; text: string }
+  /**
+   * Un mensaje de la persona. `id` es el de la página (no cambia, para no volver a montar la burbuja); `messageId`, el
+   * del hilo, que hace falta para editarlo o reintentarlo: viene del hilo guardado o del evento `turn` (fase 10).
+   */
+  | { kind: "human"; id: string; text: string; messageId?: string; branch?: Branch }
   /** Un mensaje del copiloto leído del hilo guardado (al abrir o recargar la página). */
   | { kind: "history"; id: string; text: string; step: boolean }
   /** Un turno de esta sesión, con sus pasos en vivo. */
@@ -88,7 +99,7 @@ export function fromThreadView(view: ThreadView): PageState {
     threadId: view.threadId,
     status: view.status,
     items: view.messages.map((m) =>
-      m.role === "human" ? { kind: "human", id: m.id, text: m.text } : { kind: "history", id: m.id, text: m.text, step: m.kind === "step" },
+      m.role === "human" ? { kind: "human", id: m.id, text: m.text, messageId: m.id } : { kind: "history", id: m.id, text: m.text, step: m.kind === "step" },
     ),
     ...(view.awaiting && { awaiting: view.awaiting }),
     session: [],
@@ -106,6 +117,43 @@ export function startMessage(state: PageState, text: string): PageState {
     notice: undefined,
     items: [...state.items, { kind: "human", id: localId("h"), text }, { kind: "turn", id: localId("t"), parts: [], running: true }],
   };
+}
+
+/**
+ * Editar (con `text`) o reintentar (sin él) el turno de un mensaje de la persona (fase 10, R10 y R11): la conversación
+ * se recorta desde ese mensaje y empieza un turno nuevo con el mensaje (nuevo o el mismo). Si el servidor no lo acepta,
+ * la página vuelve al estado anterior (como con un mensaje nuevo).
+ */
+export function startFork(state: PageState, messageId: string, text?: string): PageState {
+  const at = state.items.findIndex((i) => i.kind === "human" && i.messageId === messageId);
+  if (at === -1) return state;
+  const original = state.items[at] as Extract<ChatItem, { kind: "human" }>;
+  const branch: Branch = { kind: text === undefined ? "retry" : "edit", replacedActions: [] };
+  return {
+    ...state,
+    status: "running",
+    notice: undefined,
+    awaiting: undefined,
+    items: [
+      ...state.items.slice(0, at),
+      { kind: "human", id: localId("h"), text: text ?? original.text, branch },
+      { kind: "turn", id: localId("t"), parts: [], running: true },
+    ],
+  };
+}
+
+/**
+ * Qué respuesta cierra cada turno, y de qué mensaje de la persona: ahí va «Reintentar» (R11). Devuelve, por índice de
+ * `items`, el `messageId` del mensaje que la inició. Un mensaje sin respuesta (o sin id todavía) no tiene.
+ */
+export function retryTargets(items: ChatItem[]): Map<number, string> {
+  const out = new Map<number, string>();
+  let human: string | undefined;
+  items.forEach((item, i) => {
+    if (item.kind === "human") human = item.messageId;
+    else if (human && items[i + 1]?.kind !== "turn" && items[i + 1]?.kind !== "history") out.set(i, human);
+  });
+  return out;
 }
 
 export function describeDecision(decision: HumanDecision): string {
@@ -211,6 +259,19 @@ function applyToParts(parts: TurnPart[], event: UiEvent): TurnPart[] {
 /** Aplica un evento del servidor al estado de la página. */
 export function applyEvent(state: PageState, event: UiEvent): PageState {
   switch (event.type) {
+    case "turn": {
+      // El id real del mensaje que empezó este turno (el último de la persona), y si reemplazó a otro.
+      const at = state.items.findLastIndex((i) => i.kind === "human");
+      if (at === -1) return state;
+      const items = [...state.items];
+      const human = items[at] as Extract<ChatItem, { kind: "human" }>;
+      items[at] = {
+        ...human,
+        messageId: event.humanMessageId,
+        ...(event.kind !== "new" && { branch: { kind: event.kind, replacedActions: event.replacedActions ?? [] } }),
+      };
+      return { ...state, items };
+    }
     case "approval":
       return { ...state, status: "awaiting", awaiting: event.request };
     case "done": {
