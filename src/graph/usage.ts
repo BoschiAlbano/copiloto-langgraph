@@ -37,7 +37,7 @@ export function summarizeTurn(newMessages: BaseMessage[], usage: ModelUsage[]): 
       for (const call of message.tool_calls ?? []) toolCalls.push({ name: call.name, args: call.args });
     } else if (ToolMessage.isInstance(message) && message.name && isActionName(message.name)) {
       actions.push({ tool: message.name, ok: message.status !== "error", message: message.text });
-    } else if (ToolMessage.isInstance(message) && message.status === "error") {
+    } else if (ToolMessage.isInstance(message) && message.status === "error" && !message.additional_kwargs?.skipped) {
       failedTools.push(message.name ?? "herramienta");
     }
   }

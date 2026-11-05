@@ -3,6 +3,8 @@ import type { StructuredToolInterface } from "@langchain/core/tools";
 import { END, START, StateGraph, type BaseCheckpointSaver } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { makeAgentNode, type AgentModel } from "../graph/nodes/agent.js";
+import { makeRecoverNode, detectLoop } from "../graph/nodes/recover.js";
+import type { Plan } from "../graph/plan.js";
 import { QueryState } from "../graph/state.js";
 
 /** Las llamadas a herramientas del último mensaje, si es de la IA. */
@@ -11,9 +13,13 @@ export const lastToolCalls = (state: { messages: BaseMessage[] }) => {
   return last && AIMessage.isInstance(last) ? (last.tool_calls ?? []) : [];
 };
 
-/** Arista condicional del agente de consultas: si el modelo pidió herramientas, vamos a `tools`; si no, terminamos. */
-export function routeAfterAgent(state: { messages: BaseMessage[] }): "tools" | typeof END {
-  return lastToolCalls(state).length ? "tools" : END;
+/**
+ * Arista condicional del agente de consultas: si el modelo pidió herramientas, vamos a `tools`; si no, terminamos.
+ * Fase 10: si el pedido pasa el tope de rondas o repite una consulta ya hecha en la tarea, vamos a `recover`.
+ */
+export function routeAfterAgent(state: { messages: BaseMessage[]; plan?: Plan }): "tools" | "recover" | typeof END {
+  if (!lastToolCalls(state).length) return END;
+  return detectLoop(state) ? "recover" : "tools";
 }
 
 export interface QueryGraphOptions {
@@ -31,6 +37,7 @@ export interface QueryGraphOptions {
  * comparte `tools` con el agente de acciones, así que la vuelta es siempre a `agent` y no hace falta mirar `intent`.
  *
  *   START → agent ─┬─ pidió herramientas → tools → agent
+ *                  ├─ pasó el tope o repitió una consulta → recover → END   (fase 10)
  *                  └─ respondió → END
  */
 export function buildQueryGraph({ model, tools, now, checkpointer }: QueryGraphOptions) {
@@ -39,9 +46,11 @@ export function buildQueryGraph({ model, tools, now, checkpointer }: QueryGraphO
       .addNode("agent", makeAgentNode(model, { now }))
       // handleToolErrors: una excepción de la herramienta vuelve al modelo como mensaje de error.
       .addNode("tools", new ToolNode(tools, { handleToolErrors: true }))
+      .addNode("recover", makeRecoverNode("query"))
       .addEdge(START, "agent")
-      .addConditionalEdges("agent", routeAfterAgent, ["tools", END])
+      .addConditionalEdges("agent", routeAfterAgent, ["tools", "recover", END])
       .addEdge("tools", "agent")
+      .addEdge("recover", END)
       .compile({ checkpointer })
   );
 }

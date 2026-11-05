@@ -36,7 +36,7 @@ export const uiEventSchema = z.discriminatedUnion("type", [
   /** El agente pidió una herramienta de consulta. */
   z.object({ type: z.literal("tool_start"), id: z.string(), agent: agentSchema, name: z.string(), args: z.record(z.string(), z.unknown()) }),
   /** La herramienta terminó. No viaja su contenido (son datos de la base que ya usó el modelo). */
-  z.object({ type: z.literal("tool_end"), id: z.string(), name: z.string(), ok: z.boolean() }),
+  z.object({ type: z.literal("tool_end"), id: z.string(), name: z.string(), ok: z.boolean(), skipped: z.literal(true).optional() }),
   /** El resultado de una acción decidida, con el texto que armó el código. */
   z.object({ type: z.literal("action_result"), tool: z.string(), ok: z.boolean(), message: z.string() }),
   /**
@@ -96,6 +96,8 @@ function toolResultEvent(message: BaseMessage): UiEvent | undefined {
   if (!ToolMessage.isInstance(message)) return undefined;
   const ok = message.status !== "error";
   if (message.name && isActionName(message.name)) return { type: "action_result", tool: message.name, ok, message: message.text };
+  // Fase 10: una llamada que `recover` no dejó ejecutar (tope de consultas) no es una falla de la base.
+  if (message.additional_kwargs?.skipped) return { type: "tool_end", id: message.tool_call_id, name: message.name ?? "", ok: false, skipped: true };
   return { type: "tool_end", id: message.tool_call_id, name: message.name ?? "", ok };
 }
 

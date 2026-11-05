@@ -44,6 +44,8 @@ const getStock = tool(async () => { toolRuns++; return JSON.stringify({ lowCount
 });
 const toolCall = (id: string) =>
   new AIMessage({ content: "", tool_calls: [{ id, name: "getStock", args: {}, type: "tool_call" }] });
+/** Una ronda distinta de las demás (otros argumentos; la herramienta los ignora). Repetir lo mismo es un loop (fase 10). */
+const round = (id: string) => new AIMessage({ content: "", tool_calls: [{ id, name: "getStock", args: { ronda: id }, type: "tool_call" }] });
 
 /** Arma el grafo con un modelo distinto por rama, para ver cuál se usó. */
 function setup(routerOutputs: unknown[], agentReplies?: AIMessage[] | ((callNumber: number) => AIMessage)) {
@@ -217,22 +219,28 @@ describe("tope de pasos (CA10)", () => {
   });
 
   it("permite una cadena de 4 rondas de herramientas más la respuesta final", async () => {
-    const replies = [toolCall("1"), toolCall("2"), toolCall("3"), toolCall("4"), new AIMessage("Listo.")];
+    const replies = [round("1"), round("2"), round("3"), round("4"), new AIMessage("Listo.")];
     const t = setup([route("query")], replies);
     const { path, state } = await runPath(t.graph, ask());
     expect(path.filter((n) => n === "query_graph/tools")).toHaveLength(4);
     expect(state.messages.at(-1)?.text).toBe("Listo.");
   });
 
-  it("corta con GraphRecursionError un ciclo que no termina", async () => {
+  it("fase 10: un ciclo que no termina (siempre la misma consulta) se corta en recover, sin llegar al tope de pasos", async () => {
     const t = setup([route("query")], (n) => toolCall(`loop${n}`));
-    await expect(runPath(t.graph, ask())).rejects.toMatchObject({ name: "GraphRecursionError" });
-    expect(t.agent.calls).toBeLessThanOrEqual(AGENT_RECURSION_LIMIT);
+    const { path, state } = await runPath(t.graph, ask());
+    expect(path).toContain("query_graph/recover");
+    expect(state.messages.at(-1)?.text).toMatch(/^No pude terminar la consulta: estaba repitiendo/);
+    expect(t.agent.calls).toBe(2); // la segunda llamada idéntica ya es un loop
+    expect(t.agent.calls).toBeLessThan(AGENT_RECURSION_LIMIT);
   });
 
-  it("también corta una cadena de 6 rondas, que sí excede el tope", async () => {
-    const replies = [1, 2, 3, 4, 5, 6].map((i) => toolCall(String(i))).concat(new AIMessage("tarde"));
+  it("fase 10: una cadena de 6 rondas distintas pasa a recover en la quinta (tope de 4)", async () => {
+    const replies = [1, 2, 3, 4, 5, 6].map((i) => round(String(i))).concat(new AIMessage("tarde"));
     const t = setup([route("query")], replies);
-    await expect(runPath(t.graph, ask())).rejects.toMatchObject({ name: "GraphRecursionError" });
+    const { path, state } = await runPath(t.graph, ask());
+    expect(path.filter((n) => n === "query_graph/tools")).toHaveLength(4);
+    expect(state.messages.at(-1)?.text).toMatch(/^No pude terminar la consulta: hice 4 rondas/);
+    expect(t.agent.calls).toBe(5);
   });
 });

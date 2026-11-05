@@ -131,14 +131,12 @@ describe("errores de herramientas", () => {
 });
 
 describe("tope de iteraciones", () => {
-  it("corta con GraphRecursionError si el modelo pide herramientas sin parar", async () => {
+  it("fase 10: si el modelo pide herramientas sin parar, se corta en recover antes del tope de pasos", async () => {
     const { model, calls } = scriptedModel((n) => call(`loop${n}`, "getStock", {}));
     const graph = buildTestGraph({ model, tools });
-
-    await expect(graph.invoke({ messages: [new HumanMessage("hola")] }, { recursionLimit: 6 })).rejects.toMatchObject({
-      name: "GraphRecursionError",
-    });
-    expect(calls.length).toBeLessThanOrEqual(6);
+    const result = await graph.invoke({ messages: [new HumanMessage("hola")] }, { recursionLimit: 6 });
+    expect(result.messages.at(-1)!.text).toMatch(/^No pude terminar la consulta/);
+    expect(calls.length).toBe(2);
   });
 });
 

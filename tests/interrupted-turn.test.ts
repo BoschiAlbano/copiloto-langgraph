@@ -171,7 +171,7 @@ describe.skipIf(!checkpointsUrl)("turno a medias", () => {
     await cp.close();
   });
 
-  it("si se alcanza el tope de pasos el hilo queda a medias y se puede seguir con otros 12 pasos", async () => {
+  it("fase 10: un agente insistente ya no agota el tope de pasos ni deja el hilo a medias: recover cierra la tarea", async () => {
     const id = threads.fresh();
     const cp = openCheckpointing();
     // Pide herramientas 8 veces (16 pasos con las herramientas, más de lo que permite un solo intento) y recién responde.
@@ -191,12 +191,12 @@ describe.skipIf(!checkpointsUrl)("turno a medias", () => {
       checkpointer: cp.saver,
     });
 
-    await expect(runTurn({ graph }, id, "insistente")).rejects.toMatchObject({ name: "GraphRecursionError" });
-    expect((await getStatus(graph, id)).pending).toBe(true);
-
-    const turn = await continueTurn({ graph }, id);
-    expect(turn.reply).toBe("Listo.");
-    expect((await getStatus(graph, id)).pending).toBe(false);
+    // Antes (fase 4): GraphRecursionError, el hilo a medias y «continuar» con otros 12 pasos, que repetían el loop.
+    const turn = await runTurn({ graph }, id, "insistente");
+    expect(turn.reply).toMatch(/^No pude terminar la consulta/);
+    const status = await getStatus(graph, id);
+    expect(status.pending).toBe(false);
+    expect(status.messages.at(-1)?.type).toBe("ai"); // las llamadas cortadas tienen su respuesta: acepta otro mensaje
     await cp.close();
   });
 });

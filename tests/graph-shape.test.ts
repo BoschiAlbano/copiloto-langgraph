@@ -40,25 +40,27 @@ describe("forma de los grafos (fases 7 y 8)", () => {
     ]);
   });
 
-  it("consultas: agent ⇄ tools (4 conexiones)", async () => {
+  it("consultas: agent ⇄ tools y recover (6 conexiones; recover desde la fase 10)", async () => {
     const { nodes, edges } = await shape(buildQueryGraph({ model, tools: [] }));
-    expect(nodes).toEqual(["agent", "tools"]);
-    expect(edges).toEqual(["__start__ --> agent", "agent -?-> __end__", "agent -?-> tools", "tools --> agent"]);
+    expect(nodes).toEqual(["agent", "recover", "tools"]);
+    expect(edges).toEqual(["__start__ --> agent", "agent -?-> __end__", "agent -?-> recover", "agent -?-> tools", "recover --> __end__", "tools --> agent"]);
   });
 
-  it("acciones: 5 nodos y 10 conexiones", async () => {
+  it("acciones: 6 nodos y 12 conexiones (recover desde la fase 10)", async () => {
     const { nodes, edges } = await shape(buildActionGraph({ model, tools: [], actions: unexpectedActions }));
-    expect(nodes).toEqual(["action_agent", "await_approval", "execute_action", "propose_action", "tools"]);
+    expect(nodes).toEqual(["action_agent", "await_approval", "execute_action", "propose_action", "recover", "tools"]);
     expect(edges).toEqual([
       "__start__ --> action_agent",
       "action_agent -?-> __end__",
       "action_agent -?-> propose_action",
+      "action_agent -?-> recover",
       "action_agent -?-> tools",
       "await_approval -?-> await_approval",
       "await_approval -?-> execute_action",
       "execute_action --> action_agent",
       "propose_action -?-> action_agent",
       "propose_action -?-> await_approval",
+      "recover --> __end__",
       "tools --> action_agent",
     ]);
   });

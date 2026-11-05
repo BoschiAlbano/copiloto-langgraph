@@ -47,7 +47,8 @@ export type TurnPart =
       agent: AgentNode;
       name: string;
       args: Record<string, unknown>;
-      status: "running" | "done" | "error";
+      /** `skipped`: no se ejecutó porque el agente llegó al tope de consultas (fase 10). */
+      status: "running" | "done" | "error" | "skipped";
       /** El último reintento avisado (fase 10): el intento que venía y el total. */
       retry?: { attempt: number; attempts: number };
     }
@@ -180,7 +181,7 @@ function applyToParts(parts: TurnPart[], event: UiEvent): TurnPart[] {
     case "tool_start":
       return [...parts, { type: "tool", id: event.id, agent: event.agent, name: event.name, args: event.args, status: "running" }];
     case "tool_end":
-      return parts.map((p) => (p.type === "tool" && p.id === event.id ? { ...p, status: event.ok ? "done" : "error" } : p));
+      return parts.map((p) => (p.type === "tool" && p.id === event.id ? { ...p, status: event.ok ? "done" : event.skipped ? "skipped" : "error" } : p));
     case "action_result":
       return [...parts, { type: "action", tool: event.tool, ok: event.ok, message: event.message }];
     case "report_section":

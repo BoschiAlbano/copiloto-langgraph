@@ -52,15 +52,14 @@ describe("subgrafo de consultas (CA3)", () => {
     expect((result.messages.find((x) => x.type === "tool") as ToolMessage).text).toMatch(/not a valid tool|no existe|not found/i);
   });
 
-  it("respeta el tope de pasos solo: 4 rondas pasan y un ciclo sin fin se corta", async () => {
-    const four = scriptedModel([...[1, 2, 3, 4].map((i) => toolCall(String(i), "getStockLevels")), new AIMessage("Listo.")]);
+  it("respeta el tope solo: 4 rondas pasan y un ciclo sin fin se corta en recover (fase 10)", async () => {
+    const four = scriptedModel([...[1, 2, 3, 4].map((i) => toolCall(String(i), "getStockLevels", { query: `producto ${i}` })), new AIMessage("Listo.")]);
     const ok = await buildQueryGraph({ model: four.model, tools: [getStockLevels] }).invoke(ask(), { recursionLimit: AGENT_RECURSION_LIMIT });
     expect(ok.messages.at(-1)!.text).toBe("Listo.");
 
     const loop = scriptedModel((n) => toolCall(`loop${n}`, "getStockLevels"));
-    await expect(
-      buildQueryGraph({ model: loop.model, tools: [getStockLevels] }).invoke(ask(), { recursionLimit: AGENT_RECURSION_LIMIT }),
-    ).rejects.toMatchObject({ name: "GraphRecursionError" });
+    const cut = await buildQueryGraph({ model: loop.model, tools: [getStockLevels] }).invoke(ask(), { recursionLimit: AGENT_RECURSION_LIMIT });
+    expect(cut.messages.at(-1)!.text).toMatch(/^No pude terminar la consulta/);
   });
 
   it("con su propio checkpointer guarda su historial por hilo", async () => {

@@ -7,6 +7,8 @@ import type { Approval, PendingAction } from "../graph/approval.js";
 import { makeActionAgentNode } from "../graph/nodes/action-agent.js";
 import { makeApprovalNode, makeExecuteActionNode, makeProposeActionNode, type ActionRunner } from "../graph/nodes/actions.js";
 import type { AgentModel } from "../graph/nodes/agent.js";
+import { detectLoop, makeRecoverNode } from "../graph/nodes/recover.js";
+import type { Plan } from "../graph/plan.js";
 import { ActionState } from "../graph/state.js";
 import { lastToolCalls } from "./query.js";
 
@@ -16,9 +18,11 @@ import { lastToolCalls } from "./query.js";
  *  - alguna ACCIÓN pedida → `propose_action` (aunque venga mezclada: ahí se rechaza la mezcla);
  *  - solo consultas → `tools`.
  */
-export function routeAfterActionAgent(state: { messages: BaseMessage[] }): "tools" | "propose_action" | typeof END {
+export function routeAfterActionAgent(state: { messages: BaseMessage[]; plan?: Plan }): "tools" | "propose_action" | "recover" | typeof END {
   const calls = lastToolCalls(state);
   if (calls.length === 0) return END;
+  // Fase 10: el tope de rondas y las consultas repetidas valen también acá (una propuesta cuenta como una ronda).
+  if (detectLoop(state)) return "recover";
   return calls.some((c) => isActionName(c.name)) ? "propose_action" : "tools";
 }
 
@@ -72,8 +76,10 @@ export function buildActionGraph({ model, tools, actions, now, checkpointer }: A
       // Se llama await_approval y no approval: LangGraph no admite un nodo con el nombre de un campo del estado.
       .addNode("await_approval", makeApprovalNode(actions, { now }))
       .addNode("execute_action", makeExecuteActionNode(actions, { now }))
+      .addNode("recover", makeRecoverNode("action"))
       .addEdge(START, "action_agent")
-      .addConditionalEdges("action_agent", routeAfterActionAgent, ["tools", "propose_action", END])
+      .addConditionalEdges("action_agent", routeAfterActionAgent, ["tools", "propose_action", "recover", END])
+      .addEdge("recover", END)
       .addEdge("tools", "action_agent")
       .addConditionalEdges("propose_action", routeAfterPropose, ["await_approval", "action_agent"])
       .addConditionalEdges("await_approval", routeAfterApproval, ["execute_action", "await_approval"])

@@ -102,7 +102,9 @@ function ActivityLine({ part, turnRunning }: { part: Activity; turnRunning: bool
           : "Consultando"
         : part.status === "error"
           ? "No se pudo consultar"
-          : "Consultó"
+          : part.status === "skipped"
+            ? "No se ejecutó (tope de consultas)"
+            : "Consultó"
     return (
       <TraceLine status={status}>
         <TraceIcon>{part.status === "error" ? <CircleXIcon /> : part.retry ? <RotateCwIcon /> : <DatabaseIcon />}</TraceIcon>
