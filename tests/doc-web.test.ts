@@ -17,6 +17,7 @@ describe("la lista de documentos (R2, R6)", () => {
     expect(phases[0]).toMatchObject({ slug: "fase-01", file: "specs/fase-01-entorno.md", label: "Fase 1" });
     expect(slugs).toContain("mapa-del-grafo");
     expect(slugs).toContain("doc-web");
+    expect(slugs).toContain("ramas-del-hilo");
     expect(findDoc(registry, "plan")?.file).toBe(PLAN_FILE);
   });
 

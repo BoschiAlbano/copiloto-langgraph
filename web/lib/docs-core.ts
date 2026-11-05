@@ -34,6 +34,9 @@ export function buildRegistry(specFiles: string[]): DocEntry[] {
     .map(({ name, phase }): DocEntry => ({ slug: `fase-${String(phase).padStart(2, "0")}`, file: `specs/${name}`, group: "phase", phase, label: `Fase ${phase}` }))
   const reference: DocEntry[] = [{ slug: "mapa-del-grafo", file: "specs/mapa-del-grafo.md", group: "reference", label: "Mapa del grafo" }]
   if (specFiles.includes("doc-web.md")) reference.push({ slug: "doc-web", file: "specs/doc-web.md", group: "reference", label: "Esta documentación" })
+  if (specFiles.includes("ramas-del-hilo.md")) {
+    reference.push({ slug: "ramas-del-hilo", file: "specs/ramas-del-hilo.md", group: "reference", label: "Ramas del hilo" })
+  }
   return [
     { slug: "inicio", file: "README.md", group: "intro", label: "Inicio" },
     { slug: "plan", file: PLAN_FILE, group: "intro", label: "Plan del proyecto" },
