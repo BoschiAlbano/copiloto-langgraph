@@ -8,29 +8,16 @@ import type { TraceSink } from "../src/observability/store.js";
 import type { UiEvent } from "../src/web/events.js";
 import { estimateCostUsd } from "../src/config/pricing.js";
 import type { ConversationCase } from "./conversation-cases.js";
-import { evaluateChecks, type CheckResult, type SqlRunner, type TurnObservation } from "./conversation-checks.js";
+import type { EvalCaseResult } from "../src/observability/eval-report.js";
+import { evaluateChecks, type SqlRunner, type TurnObservation } from "./conversation-checks.js";
 
 /** Lo que dice el rechazo automático de cada tarjeta (queda en el hilo, que después se borra). */
 export const AUTO_REJECT = "Evaluación: se rechaza sola, no se escribe nada.";
 /** Cuántas veces seguidas se rechaza una tarjeta antes de dar el turno por terminado (no debería pasar de una). */
 const MAX_REJECTS = 3;
 
-export interface CaseRun {
-  caseId: string;
-  category: string;
-  runNo: number;
-  passed: boolean;
-  results: ({ check: string } & CheckResult)[];
-  reply: string;
-  inputTokens: number;
-  outputTokens: number;
-  costUsd: number | null;
-  durationMs: number;
-  /** La traza del último turno (la que muestra por qué pasó o falló). */
-  traceId?: string;
-  /** Un error del sistema que no dejó terminar el caso. */
-  error?: string;
-}
+/** Un caso en una corrida: el mismo formato que guarda la base y muestra la web. */
+export type CaseRun = EvalCaseResult;
 
 export interface CaseDeps {
   /** El agente real: grafo con checkpointer y Store. */

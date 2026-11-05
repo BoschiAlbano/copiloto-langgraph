@@ -18,6 +18,7 @@
     "threads": "tsx src/cli/threads.ts",
     "memory": "tsx src/cli/memory.ts",
     "bench": "tsx src/cli/bench.ts",
+    "eval": "tsx src/cli/eval.ts",
     "eval:router": "tsx src/cli/eval-router.ts",
     "eval:actions": "tsx src/cli/eval-actions.ts",
     "eval:report": "tsx src/cli/eval-report.ts",

@@ -8,6 +8,7 @@ import { createMemoryStore, MEMORY_NAMESPACE } from "../memory/store.js";
 import { createCheckpointing } from "./checkpointing.js";
 import { buildGraph } from "./index.js";
 import { PostgresTraceStore } from "../observability/store.js";
+import { PostgresEvalStore } from "../observability/evals-store.js";
 import { claude, makeClarifyModel, makeMemoryModel, makeReportModel, makeReportPlanModel, makeRouterModel } from "./models.js";
 import { runSection } from "./report/sections.js";
 
@@ -69,6 +70,8 @@ export function createAgent(
     pool: checkpointing.pool,
     /** Las trazas de los turnos (fase 11). */
     traces,
+    /** Las corridas del set de evaluación (fase 11). */
+    evals: new PostgresEvalStore(checkpointing.pool),
     /** La memoria de largo plazo y su namespace (para listar y borrar desde la terminal). */
     memory: { store, namespace: options.memoryNamespace ?? MEMORY_NAMESPACE },
     close: async () => {
