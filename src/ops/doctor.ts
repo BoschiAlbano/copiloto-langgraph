@@ -8,4 +8,6 @@ const results = await runChecks(process.env);
 console.log(formatChecks(results));
 const failed = results.filter((r) => !r.ok).length;
 console.log(failed ? `\n✗ ${failed} ${failed === 1 ? "problema" : "problemas"}.` : "\n✓ Todo en orden.");
-process.exit(failed ? 1 : 0);
+// Sin process.exit(): en Windows, salir así mientras se cierra la conexión de fetch a la API puede tumbar el proceso
+// («Assertion failed … src\win\async.c»), y `setup` y `start` lo tomarían como una revisión fallida. Termina solo.
+process.exitCode = failed ? 1 : 0;
