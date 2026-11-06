@@ -10,7 +10,10 @@ import { planOutputSchema } from "./report/plan.js";
 // 5xx, el 429 y la red. Por defecto son 6 reintentos con espera creciente (casi un minuto antes de informar un error);
 // se bajan a 3. Los reintentos de la base van aparte (src/tools/retry.ts).
 export const CLAUDE_MAX_RETRIES = 3;
-export const claude = (env: Env, model: string) => new ChatAnthropic({ model, apiKey: env.ANTHROPIC_API_KEY, maxRetries: CLAUDE_MAX_RETRIES });
+// timeout (fase 12): el SDK espera hasta 10 minutos por defecto. Una llamada que no responde en MODEL_TIMEOUT_MS se corta
+// y LangChain la reintenta como un error de red; el turno entero tiene su propio límite (TURN_TIMEOUT_MS).
+export const claude = (env: Env, model: string) =>
+  new ChatAnthropic({ model, apiKey: env.ANTHROPIC_API_KEY, maxRetries: CLAUDE_MAX_RETRIES, clientOptions: { timeout: env.MODEL_TIMEOUT_MS } });
 
 /**
  * Para los modelos de salida estructurada (router, memoria, período del reporte): Claude contesta todo junto aunque

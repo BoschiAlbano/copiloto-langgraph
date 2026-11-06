@@ -10,7 +10,9 @@ import {
   streamRunTurn,
   ThreadAwaitingApprovalError,
   ThreadPendingError,
+  TurnTimeoutError,
   type TurnAgent,
+  type TurnLimits,
 } from "../graph/run-turn.js";
 import { threadIdSchema } from "../graph/thread-id.js";
 import { streamForkTurn, streamReplayTurn, TurnNotFoundError, type HistoryGraph } from "../graph/time-travel.js";
@@ -51,6 +53,8 @@ export interface WebDeps {
   memory?: MemoryBank;
   /** Dónde guarda su traza cada turno (fase 11). Sin esto, los turnos no dejan trazas. */
   traces?: TraceStore;
+  /** Los límites de operación de cada turno (fase 12): tiempo y gasto. */
+  limits?: TurnLimits;
   /** Las corridas del set de evaluación (fase 11). Las lanza la terminal; la web las muestra. */
   evals?: EvalStore;
   locks?: ThreadLocks;
@@ -107,7 +111,7 @@ export interface ThreadView {
 export function publicErrorMessage(error: unknown): string {
   const e = error as Error;
   if (e?.name === "GraphRecursionError") return `El agente superó el límite de ${AGENT_RECURSION_LIMIT} pasos y se detuvo.`;
-  if (error instanceof ThreadPendingError || error instanceof NothingToDecideError || error instanceof TurnNotFoundError) return e.message;
+  if (error instanceof ThreadPendingError || error instanceof NothingToDecideError || error instanceof TurnNotFoundError || error instanceof TurnTimeoutError) return e.message;
   return "No se pudo completar el pedido por un problema del sistema. Si el turno quedó a medias, podés continuarlo.";
 }
 
@@ -117,7 +121,7 @@ export function makeHandlers(deps: WebDeps) {
 
   const parseId = (raw: string) => threadIdSchema.safeParse(raw);
   /** Lo que necesita cada turno: el grafo y, si hay, dónde guardar su traza. */
-  const turnAgent = { graph: deps.graph, ...(deps.traces && { traces: deps.traces }) };
+  const turnAgent = { graph: deps.graph, ...(deps.traces && { traces: deps.traces }), ...(deps.limits && { limits: deps.limits }) };
 
   /**
    * Corre un turno en vivo: toma el hilo, une la señal del pedido con la del corte del navegador, y convierte una falla

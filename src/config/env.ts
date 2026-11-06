@@ -16,6 +16,14 @@ const envSchema = z.object({
   DATABASE_URL_ACTIONS: z.string().min(1),
   // Cuántos días se conservan las trazas de los turnos (fase 11). Las más viejas se borran al arrancar.
   TRACE_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
+  // Fase 12: límites de operación (todos opcionales).
+  // Tope de gasto por día en la API de Claude, en dólares; 0 lo desactiva.
+  DAILY_BUDGET_USD: z.coerce.number().min(0).default(1),
+  // Límite de una llamada al modelo (sumado a sus reintentos) y de un turno entero, en milisegundos.
+  MODEL_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
+  TURN_TIMEOUT_MS: z.coerce.number().int().positive().default(180_000),
+  // Cuántos días se guardan los registros de operación (logs/).
+  LOG_RETENTION_DAYS: z.coerce.number().int().positive().default(14),
 });
 
 export type Env = z.infer<typeof envSchema>;

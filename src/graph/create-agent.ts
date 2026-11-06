@@ -72,6 +72,8 @@ export function createAgent(
     traces,
     /** Las corridas del set de evaluación (fase 11). */
     evals: new PostgresEvalStore(checkpointing.pool),
+    /** Los límites de operación de cada turno (fase 12). */
+    limits: { turnTimeoutMs: env.TURN_TIMEOUT_MS },
     /** La memoria de largo plazo y su namespace (para listar y borrar desde la terminal). */
     memory: { store, namespace: options.memoryNamespace ?? MEMORY_NAMESPACE },
     close: async () => {

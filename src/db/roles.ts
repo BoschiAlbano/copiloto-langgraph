@@ -1,3 +1,4 @@
+import pg from "pg";
 import { loadEnvFile } from "../config/env.js";
 import { ensureRoleLogin } from "./role-login.js";
 
@@ -26,4 +27,18 @@ for (const { variable, expectedRole } of roles) {
     console.error(`${variable}: ${(error as Error).message}`);
     process.exit(1);
   }
+}
+
+// Fase 12 (R6): ninguna consulta de la aplicación tarda más de 10 s. Vale para cada sesión nueva de estos roles, también
+// por el pooler de Supabase. Una consulta cortada (código 57014) no es transitoria: la herramienta la informa como falla.
+const STATEMENT_TIMEOUT = "10s";
+const admin = new pg.Client({ connectionString: adminUrl });
+await admin.connect();
+try {
+  for (const { expectedRole } of roles) {
+    await admin.query(`ALTER ROLE ${admin.escapeIdentifier(expectedRole)} SET statement_timeout = ${admin.escapeLiteral(STATEMENT_TIMEOUT)}`);
+  }
+  console.log(`Límite de ${STATEMENT_TIMEOUT} por consulta para ${roles.map((r) => r.expectedRole).join(" y ")}.`);
+} finally {
+  await admin.end();
 }
