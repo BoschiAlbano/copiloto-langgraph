@@ -79,6 +79,15 @@ describe.skipIf(!checkpointsUrl)("trazas en Postgres", () => {
     expect(await store.list({ threadId: thread })).toEqual([]);
   });
 
+  it("costSince suma los turnos desde ese momento, sin las evaluaciones (el tope de gasto de la fase 12)", async () => {
+    const since = new Date(Date.now() - 60_000);
+    const before = await store.costSince(since);
+    await store.save(trace({ threadId: thread, costUsd: 0.25 }));
+    await store.save(trace({ threadId: thread, costUsd: 0.5, evalRunId: randomUUID(), evalCaseId: "Q1" }));
+    await store.save(trace({ threadId: thread, costUsd: 9, startedAt: new Date(Date.now() - 3_600_000).toISOString() }));
+    expect((await store.costSince(since)) - before).toBeCloseTo(0.25);
+  });
+
   it("sin el esquema, lo avisa una sola vez y no rompe", async () => {
     const warn = vi.fn();
     const broken = new PostgresTraceStore({ query: async () => { throw Object.assign(new Error("no existe"), { code: "42P01" }); } } as never, warn);

@@ -22,6 +22,7 @@ import { isTraceId, type TraceStore, type TraceSummary } from "../observability/
 import type { Trace } from "../observability/trace-recorder.js";
 import { compareRuns, EVAL_CATEGORIES, type EvalRun, type EvalRunSummary, type RunComparison } from "../observability/eval-report.js";
 import type { EvalStore } from "../observability/evals-store.js";
+import { BudgetExceededError, checkBudget } from "../ops/budget.js";
 import type { UiEvent } from "./events.js";
 import { checkMutation, jsonError, readJson } from "./guard.js";
 import { ThreadLocks } from "./locks.js";
@@ -111,7 +112,7 @@ export interface ThreadView {
 export function publicErrorMessage(error: unknown): string {
   const e = error as Error;
   if (e?.name === "GraphRecursionError") return `El agente superó el límite de ${AGENT_RECURSION_LIMIT} pasos y se detuvo.`;
-  if (error instanceof ThreadPendingError || error instanceof NothingToDecideError || error instanceof TurnNotFoundError || error instanceof TurnTimeoutError) return e.message;
+  if (error instanceof ThreadPendingError || error instanceof NothingToDecideError || error instanceof TurnNotFoundError || error instanceof TurnTimeoutError || error instanceof BudgetExceededError) return e.message;
   return "No se pudo completar el pedido por un problema del sistema. Si el turno quedó a medias, podés continuarlo.";
 }
 
@@ -127,7 +128,17 @@ export function makeHandlers(deps: WebDeps) {
    * Corre un turno en vivo: toma el hilo, une la señal del pedido con la del corte del navegador, y convierte una falla
    * en un evento `error` (con un texto sin detalles internos) en vez de cortar la conexión.
    */
-  function stream(request: Request, threadId: string, run: (signal: AbortSignal) => AsyncGenerator<UiEvent>): Response {
+  async function stream(request: Request, threadId: string, run: (signal: AbortSignal) => AsyncGenerator<UiEvent>): Promise<Response> {
+    // Fase 12 (R5): con el tope de gasto alcanzado, el pedido no empieza (la página vuelve atrás y muestra el aviso).
+    try {
+      await checkBudget(deps.limits?.dailyBudgetUsd, deps.limits?.spentToday);
+    } catch (error) {
+      if (error instanceof BudgetExceededError) {
+        log(`[web] Tope de gasto alcanzado (hilo ${threadId})`, error);
+        return jsonError(429, error.message);
+      }
+      throw error;
+    }
     const release = locks.acquire(threadId);
     if (!release) return jsonError(409, "Este hilo ya tiene un turno en curso. Esperá a que termine.");
     const cut = new AbortController();

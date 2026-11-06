@@ -10,6 +10,7 @@ import type { Section } from "./report/state.js";
 import { toUiEvents, type StreamChunk, type UiEvent } from "../web/events.js";
 import type { TraceSink } from "../observability/store.js";
 import { TraceRecorder, type TraceStatus, type TurnKind } from "../observability/trace-recorder.js";
+import { checkBudget } from "../ops/budget.js";
 import { parseThreadId } from "./thread-id.js";
 import { getStatus } from "./threads.js";
 import { agentSteps, summarizeTurn, type AgentStep, type TurnSummary } from "./usage.js";
@@ -45,6 +46,10 @@ export type TurnAgent = Pick<Agent, "graph"> & { traces?: TraceSink; limits?: Tu
 export interface TurnLimits {
   /** Si un turno se pasa, se corta: el hilo queda a medias y «Continuar» lo retoma. */
   turnTimeoutMs?: number;
+  /** El tope de gasto del día, en dólares (0 o sin definir: sin tope). */
+  dailyBudgetUsd?: number;
+  /** Cuánto se gastó hoy (según las trazas). */
+  spentToday?: () => Promise<number>;
 }
 
 /** El turno se pasó de su límite de tiempo y se cortó (fase 12, R6). */
@@ -96,6 +101,8 @@ const STREAM_MODES = ["values", "updates", "messages", "custom"] as const;
  */
 export async function* streamInvoke(agent: TurnAgent, threadId: string, input: TurnInput, already: number, options: InvokeOptions = {}): AsyncGenerator<UiEvent> {
   const { checkpoint } = options;
+  // Fase 12 (R5): con el tope de gasto del día alcanzado, no se llama al modelo ni se toca el hilo.
+  await checkBudget(agent.limits?.dailyBudgetUsd, agent.limits?.spentToday);
   // Fase 12 (R6): el turno entero tiene su límite de tiempo, además de la señal de quien lo pidió (cerrar la página).
   const timeout = agent.limits?.turnTimeoutMs ? AbortSignal.timeout(agent.limits.turnTimeoutMs) : undefined;
   const signal = options.signal && timeout ? AbortSignal.any([options.signal, timeout]) : (options.signal ?? timeout);

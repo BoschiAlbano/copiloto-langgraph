@@ -9,6 +9,7 @@ import { createCheckpointing } from "./checkpointing.js";
 import { buildGraph } from "./index.js";
 import { PostgresTraceStore } from "../observability/store.js";
 import { PostgresEvalStore } from "../observability/evals-store.js";
+import { spentToday } from "../ops/budget.js";
 import { claude, makeClarifyModel, makeMemoryModel, makeReportModel, makeReportPlanModel, makeRouterModel } from "./models.js";
 import { runSection } from "./report/sections.js";
 
@@ -73,7 +74,7 @@ export function createAgent(
     /** Las corridas del set de evaluación (fase 11). */
     evals: new PostgresEvalStore(checkpointing.pool),
     /** Los límites de operación de cada turno (fase 12). */
-    limits: { turnTimeoutMs: env.TURN_TIMEOUT_MS },
+    limits: { turnTimeoutMs: env.TURN_TIMEOUT_MS, dailyBudgetUsd: env.DAILY_BUDGET_USD, spentToday: () => spentToday(traces) },
     /** La memoria de largo plazo y su namespace (para listar y borrar desde la terminal). */
     memory: { store, namespace: options.memoryNamespace ?? MEMORY_NAMESPACE },
     close: async () => {

@@ -29,6 +29,8 @@ export interface TraceStore extends TraceSink {
   deleteThread(threadId: string): Promise<number>;
   /** Borra las trazas de más de `days` días. Devuelve cuántas borró. */
   prune(days: number): Promise<number>;
+  /** Lo que costaron los turnos desde ese momento, sin las corridas de evaluación (fase 12: el tope de gasto). */
+  costSince(since: Date): Promise<number>;
 }
 
 const SUMMARY_COLUMNS = `id, thread_id, kind, input, started_at, duration_ms, status, error, route, calls, input_tokens, output_tokens,
@@ -144,6 +146,19 @@ export class PostgresTraceStore implements TraceStore {
       throw error;
     }
   }
+
+  async costSince(since: Date): Promise<number> {
+    try {
+      const { rows } = await this.pool.query(
+        `SELECT COALESCE(SUM(cost_usd), 0)::float AS usd FROM ${OBSERVABILITY_SCHEMA}.traces WHERE started_at >= $1 AND eval_run_id IS NULL`,
+        [since.toISOString()],
+      );
+      return Number(rows[0]?.usd ?? 0);
+    } catch (error) {
+      if (this.missingSchema(error)) return 0;
+      throw error;
+    }
+  }
 }
 
 /** Trazas en memoria: para los tests y para correr sin base. */
@@ -179,5 +194,9 @@ export class MemoryTraceStore implements TraceStore {
     const before = this.traces.length;
     this.traces.splice(0, this.traces.length, ...this.traces.filter((t) => Date.parse(t.startedAt) >= limit));
     return before - this.traces.length;
+  }
+
+  async costSince(since: Date) {
+    return this.traces.filter((t) => !t.evalRunId && Date.parse(t.startedAt) >= since.getTime()).reduce((n, t) => n + (t.costUsd ?? 0), 0);
   }
 }

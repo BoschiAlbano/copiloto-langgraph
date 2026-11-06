@@ -135,7 +135,10 @@ async function attempt(run: () => Promise<TurnResult>, withRoute = false) {
       `\n${
         e.name === "GraphRecursionError"
           ? `El agente superó el límite de ${AGENT_RECURSION_LIMIT} pasos y se detuvo.`
-          : `Error al procesar el pedido: ${e.message}`
+          : // Los límites de la fase 12 traen su propio mensaje, ya pensado para la persona.
+            e.name === "BudgetExceededError" || e.name === "TurnTimeoutError"
+            ? e.message
+            : `Error al procesar el pedido: ${e.message}`
       }`,
     );
   }
