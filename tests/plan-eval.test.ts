@@ -1,3 +1,4 @@
+import { routerOutputSchema } from "../src/graph/intents.js";
 import { readFileSync } from "node:fs";
 import { HumanMessage } from "@langchain/core/messages";
 import { describe, expect, it } from "vitest";
@@ -58,9 +59,11 @@ describe("prompt del router (fase 7)", () => {
     for (const c of PLAN_CASES) expect(haystack.includes(normalize(c.message)), `${c.id}: "${c.message}"`).toBe(false);
   });
 
-  it("explica cuándo separar en tareas y pide el formato nuevo", () => {
-    expect(prompt).toMatch(/Casi siempre hay UNA sola tarea/);
-    expect(prompt).toMatch(/Varias preguntas de datos en el mismo mensaje son UNA sola tarea query/);
+  it("dice cuándo separar en tareas y pide el formato nuevo", () => {
+    // Fase 11: la sección «Cuándo separar en tareas» se sacó porque la comparación con el set completo no mostró
+    // ningún cambio sin ella (ver la spec de la fase 11). Lo dicen la primera línea del prompt y el esquema de salida.
+    expect(prompt).toMatch(/si pide varias cosas de distinto tipo, separarlas en tareas/);
+    expect(routerOutputSchema.shape.tasks.description).toMatch(/Casi siempre es una sola/);
     expect(prompt).toMatch(/`tasks` \(de 1 a 3 tareas/);
     expect(prompt).not.toMatch(/Si el pedido mezcla un cambio con una consulta, es action/);
   });
