@@ -7,9 +7,13 @@
     "node": ">=24"
   },
   "scripts": {
+    "setup": "tsx src/ops/setup.ts",
+    "start": "tsx src/ops/start.ts",
+    "stop": "tsx src/ops/stop.ts",
     "chat": "tsx src/cli/chat.ts",
     "web": "npm --prefix web run dev",
     "web:build": "npm --prefix web run build",
+    "web:start": "npm --prefix web run start",
     "web:e2e": "npm --prefix web run e2e",
     "web:install": "npm --prefix web install",
     "test": "vitest run && vitest run --config vitest.writes.config.ts",

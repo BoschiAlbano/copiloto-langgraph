@@ -92,7 +92,9 @@ describe.skipIf(!hasWriteDb)("rol copilot_actions", () => {
     ];
     for (const sql of denied) {
       it(`rechaza: ${sql}`, async () => {
-        await expect(actions.query(sql)).rejects.toMatchObject({ code: NO_PERMISSION });
+        // auth.users es de Supabase; en un Postgres solo (fase 12) no existe, y tampoco se puede leer.
+        const missing = sql.includes("auth.") && !(await actions.query("SELECT to_regnamespace('auth') IS NOT NULL AS ok")).rows[0].ok;
+        await expect(actions.query(sql)).rejects.toMatchObject({ code: missing ? "42P01" : NO_PERMISSION });
       });
     }
   });

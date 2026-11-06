@@ -68,7 +68,9 @@ describe.skipIf(!checkpointsUrl)("rol copilot_checkpointer", () => {
       });
     }
     it("rechaza leer las tablas de autenticación de Supabase", async () => {
-      await expect(client.query("SELECT * FROM auth.users LIMIT 1")).rejects.toMatchObject({ code: NO_PERMISSION });
+      // Con Supabase, el esquema auth existe y el rol no tiene permiso. Con un Postgres solo (fase 12), no existe.
+      const hasAuth = (await client.query("SELECT to_regnamespace('auth') IS NOT NULL AS ok")).rows[0].ok;
+      await expect(client.query("SELECT * FROM auth.users LIMIT 1")).rejects.toMatchObject({ code: hasAuth ? NO_PERMISSION : "42P01" });
     });
   });
 });

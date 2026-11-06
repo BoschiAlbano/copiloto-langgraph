@@ -6,3 +6,7 @@ dist/
 *.log
 .DS_Store
 src/db/generated/
+
+# Fase 12: respaldos de la base y registros de operación (tienen datos del negocio)
+backups/
+logs/

@@ -246,3 +246,9 @@ Una tarea = un commit en la rama `dev/fase-12`.
   - **los hilos no se borran solos**.
 
 Costo de esta fase en la API: casi nada. Solo el ensayo del clon limpio (un par de turnos) y las pruebas del navegador del final, unos US$ 0,15 en total.
+- **La migración inicial necesitaba un esquema de Supabase** (T2): instala `btree_gist` (la que impide turnos superpuestos) en el esquema `extensions`, que Supabase trae y un Postgres solo no. No se tocó la migración, que ya está aplicada en tu Supabase y cambiarla rompería su suma de control. La base propia crea `extensions` al inicializarse (`docker/initdb/01-extensions.sql`). La restricción usa la clase de operadores por defecto, que Postgres encuentra sin importar el esquema.
+- **Toda la suite pasa sobre la base propia**: 755 + 54 tests, igual que con tu Supabase. Solo hubo que ajustar tres tests que comprobaban que los roles no leen `auth.users`, una tabla de Supabase. Ahora, si el esquema `auth` existe, exigen «sin permiso», como antes. Si no existe, la tabla no se puede leer porque no está (`42P01`).
+- **`setup` se puede repetir sin pisar nada.** Los pasos de la base ya eran idempotentes, y los datos de prueba se cargan solo si no hay clientes. Corre además `prisma generate`, porque el cliente generado no se versiona y un clon limpio no lo tiene.
+- **`start` compila la web solo si hace falta**: si no hay build, o si algún archivo de `src/` o `web/` es más nuevo que el último. La web compila también `src/`.
+- **La base propia vuelve sola si Docker se reinicia** (`restart: unless-stopped`). Si Docker Desktop se cierra, no hay forma de levantarla desde el copiloto: `setup` y `start` lo detectan y piden abrirlo.
+- **Probado sin tocar tu `.env`**: las variables puestas en la terminal tienen prioridad sobre las del archivo, también para Prisma. Así se armó una base propia completa en el puerto 54329 mientras tu Supabase seguía en el 5432.

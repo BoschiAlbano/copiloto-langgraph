@@ -1,0 +1,24 @@
+# La base del copiloto para un clon limpio (fase 12): Postgres 17 solo. El copiloto no usa nada más de Supabase.
+# La levanta `npm run setup` o `npm run start`; la contraseña del dueño sale de POSTGRES_PASSWORD en .env.
+# Escucha solo en esta máquina, en el puerto 54329 (así no choca con un Supabase local en el 5432).
+name: copiloto
+services:
+  db:
+    image: postgres:17.6
+    container_name: copiloto-db
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD en .env (ver .env.example)}
+    ports:
+      - "127.0.0.1:54329:5432"
+    volumes:
+      - copiloto-pgdata:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    # Si Docker se reinicia, la base vuelve sola.
+    restart: unless-stopped
+volumes:
+  copiloto-pgdata:
