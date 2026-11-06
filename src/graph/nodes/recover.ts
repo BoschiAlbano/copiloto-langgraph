@@ -1,6 +1,7 @@
 import { AIMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
 import type { Plan } from "../plan.js";
 import { TOOL_LABELS } from "../../web/turn-view.js";
+import { log } from "../../ops/log.js";
 
 // El tope de iteraciones de los agentes con herramientas (fase 10, R5 y R6). Un agente que da vueltas (pide
 // herramientas sin llegar a una respuesta, o repite exactamente la misma consulta) no sigue hasta el límite de
@@ -77,7 +78,7 @@ export function recoverMessage(reason: LoopReason, consulted: string[], kind: "q
  * El turno termina normalmente: no queda a medias, así que «Continuar» no repite el loop.
  */
 export function makeRecoverNode(kind: "query" | "action", options: { maxRounds?: number; warn?: (message: string) => void } = {}) {
-  const warn = options.warn ?? ((message: string) => console.warn(message));
+  const warn = options.warn ?? ((message: string) => log.warn("recover", message));
   return async (state: LoopState) => {
     const reason = detectLoop(state, options.maxRounds) ?? { kind: "rounds" as const, rounds: options.maxRounds ?? MAX_TOOL_ROUNDS };
     const rounds = toolRounds(state);

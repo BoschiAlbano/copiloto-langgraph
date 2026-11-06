@@ -4,6 +4,7 @@ import { routerOutputSchema } from "../intents.js";
 import { normalizePlan, PLAN_FALLBACK_REASON, type TaskState } from "../plan.js";
 import { invokeWithCorrection, zodCheck } from "../structured.js";
 import { buildRouterContext, formatTranscript } from "../router-context.js";
+import { log } from "../../ops/log.js";
 
 /**
  * Lo que el nodo necesita del modelo del router: algo que devuelva `{ parsed }`.
@@ -29,7 +30,7 @@ export function makeRouterNode(
   model: RouterModel,
   options: { warn?: (message: string) => void } = {},
 ) {
-  const warn = options.warn ?? ((message: string) => console.warn(message));
+  const warn = options.warn ?? ((message: string) => log.warn("router", message));
   return async (state: Pick<TaskState, "messages">) => {
     const transcript = formatTranscript(buildRouterContext(state.messages));
     // Fase 10: si la salida no cumple el esquema, un segundo intento con la corrección antes del respaldo.

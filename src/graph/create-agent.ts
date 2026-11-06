@@ -12,6 +12,7 @@ import { PostgresEvalStore } from "../observability/evals-store.js";
 import { spentToday } from "../ops/budget.js";
 import { claude, makeClarifyModel, makeMemoryModel, makeReportModel, makeReportPlanModel, makeRouterModel } from "./models.js";
 import { runSection } from "./report/sections.js";
+import { log, logDir, pruneLogs } from "../ops/log.js";
 
 export type Agent = ReturnType<typeof createAgent>;
 
@@ -40,7 +41,11 @@ export function createAgent(
   const checkpointing = createCheckpointing(env.DATABASE_URL_CHECKPOINTS);
   // Las trazas de cada turno (fase 11): mismo rol y mismo pool que los hilos. Las viejas se borran al arrancar.
   const traces = new PostgresTraceStore(checkpointing.pool);
-  traces.prune(env.TRACE_RETENTION_DAYS).catch((error) => console.warn(`[trazas] No se pudieron borrar las viejas: ${(error as Error).message}`));
+  traces.prune(env.TRACE_RETENTION_DAYS).catch((error) => log.warn("trazas-viejas-no-borradas", `[trazas] No se pudieron borrar las viejas: ${(error as Error).message}`, { error }));
+  // El registro de operación (fase 12): los archivos viejos se borran al arrancar, y el arranque queda registrado.
+  const dir = logDir();
+  if (dir) pruneLogs(dir, env.LOG_RETENTION_DAYS);
+  log.info("arranque", { agent: env.MODEL_AGENT, router: env.MODEL_ROUTER, report: env.MODEL_REPORT, db: new URL(env.DATABASE_URL_CHECKPOINTS).host, dailyBudgetUsd: env.DAILY_BUDGET_USD });
   // La memoria de largo plazo (fase 8): el Store, en el mismo esquema y con el mismo rol que los hilos.
   const store = createMemoryStore(env.DATABASE_URL_CHECKPOINTS);
 
@@ -78,6 +83,7 @@ export function createAgent(
     /** La memoria de largo plazo y su namespace (para listar y borrar desde la terminal). */
     memory: { store, namespace: options.memoryNamespace ?? MEMORY_NAMESPACE },
     close: async () => {
+      log.info("parada");
       await Promise.all([db.$disconnect(), actionsDb.$disconnect(), checkpointing.close(), store.stop()]);
     },
   };

@@ -27,6 +27,7 @@ import type { UiEvent } from "./events.js";
 import { checkMutation, jsonError, readJson } from "./guard.js";
 import { ThreadLocks } from "./locks.js";
 import { sseResponse } from "./sse.js";
+import { errorData, log as opsLog } from "../ops/log.js";
 
 // Las rutas de la app web, como funciones (Request) → Response, sin nada de Next (fase 9, R10). Las rutas de
 // web/app/api solo las llaman; así se prueban con vitest como el resto del copiloto.
@@ -118,7 +119,7 @@ export function publicErrorMessage(error: unknown): string {
 
 export function makeHandlers(deps: WebDeps) {
   const locks = deps.locks ?? new ThreadLocks();
-  const log = deps.log ?? ((message: string, error?: unknown) => console.error(message, error));
+  const log = deps.log ?? ((message: string, error?: unknown) => opsLog.error("web", error ? `${message}: ${errorData(error).message}` : message, { error }));
 
   const parseId = (raw: string) => threadIdSchema.safeParse(raw);
   /** Lo que necesita cada turno: el grafo y, si hay, dónde guardar su traza. */

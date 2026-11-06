@@ -2,6 +2,7 @@ import type { LangGraphRunnableConfig } from "@langchain/langgraph";
 import { z } from "zod";
 import { announceRetry } from "./retry-events.js";
 import { DEFAULT_ATTEMPTS, isTransient, withRetry, type RetryOptions } from "./retry.js";
+import { log } from "../ops/log.js";
 
 /** Error pensado para que el modelo lo lea y corrija sus parámetros (por ejemplo, un barbero inexistente). */
 export class ToolUserError extends Error {}
@@ -21,7 +22,7 @@ export function explainError(name: string, error: unknown): string {
   if (error instanceof ToolUserError) return error.message;
   if (error instanceof z.ZodError) return error.issues.map((i) => i.message).join("; ");
   const detail = error instanceof Error ? error.message.trim() : String(error);
-  console.error(`[error en ${name}] ${detail}`);
+  log.error("error-del-sistema", `[error en ${name}] ${detail}`, { where: name, error });
   const code = dbCode(error);
   return `problema del sistema${code ? ` (código ${code})` : ""}`;
 }
@@ -39,7 +40,7 @@ export function safeTool<Input>(name: string, run: (input: Input) => Promise<unk
       const result = await withRetry(() => run(input), {
         ...retry,
         onRetry: (info) => {
-          console.warn(`[reintento] ${name} ${info.attempt} de ${info.attempts} (en ${info.delayMs} ms)`);
+          log.warn("reintento", `[reintento] ${name} ${info.attempt} de ${info.attempts} (en ${info.delayMs} ms)`, { target: name, attempt: info.attempt, attempts: info.attempts });
           announceRetry({ target: name, attempt: info.attempt, attempts: info.attempts }, config);
           retry.onRetry?.(info);
         },
@@ -48,7 +49,7 @@ export function safeTool<Input>(name: string, run: (input: Input) => Promise<unk
     } catch (error) {
       if (error instanceof ToolUserError || error instanceof z.ZodError) throw error;
       const detail = error instanceof Error ? error.message.trim() : String(error);
-      console.error(`[error en herramienta ${name}] ${detail}`);
+      log.error("herramienta-fallo", `[error en herramienta ${name}] ${detail}`, { tool: name, error });
       const code = dbCode(error);
       throw new Error(
         `La herramienta ${name} falló por un problema del sistema${code ? ` (código ${code})` : ""}. ` +

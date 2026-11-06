@@ -10,11 +10,12 @@ import type { Section } from "./report/state.js";
 import { toUiEvents, type StreamChunk, type UiEvent } from "../web/events.js";
 import type { TraceSink } from "../observability/store.js";
 import { TraceRecorder, type TraceStatus, type TurnKind } from "../observability/trace-recorder.js";
-import { checkBudget } from "../ops/budget.js";
+import { BudgetExceededError, checkBudget } from "../ops/budget.js";
+import { log } from "../ops/log.js";
 import { parseThreadId } from "./thread-id.js";
 import { getStatus } from "./threads.js";
 import { agentSteps, summarizeTurn, type AgentStep, type TurnSummary } from "./usage.js";
-import { UsageTracker, type ModelUsage } from "./usage-tracker.js";
+import { costOfUsage, UsageTracker, type ModelUsage } from "./usage-tracker.js";
 
 export interface TurnResult {
   /** Respuesta final. Vacía si el turno quedó esperando una aprobación (ahí manda `awaiting`). */
@@ -102,7 +103,13 @@ const STREAM_MODES = ["values", "updates", "messages", "custom"] as const;
 export async function* streamInvoke(agent: TurnAgent, threadId: string, input: TurnInput, already: number, options: InvokeOptions = {}): AsyncGenerator<UiEvent> {
   const { checkpoint } = options;
   // Fase 12 (R5): con el tope de gasto del día alcanzado, no se llama al modelo ni se toca el hilo.
-  await checkBudget(agent.limits?.dailyBudgetUsd, agent.limits?.spentToday);
+  try {
+    await checkBudget(agent.limits?.dailyBudgetUsd, agent.limits?.spentToday);
+  } catch (error) {
+    if (error instanceof BudgetExceededError) log.warn("tope-de-gasto", error.message, { threadId, spentUsd: error.spentUsd, budgetUsd: error.budgetUsd });
+    throw error;
+  }
+  const started = Date.now();
   // Fase 12 (R6): el turno entero tiene su límite de tiempo, además de la señal de quien lo pidió (cerrar la página).
   const timeout = agent.limits?.turnTimeoutMs ? AbortSignal.timeout(agent.limits.turnTimeoutMs) : undefined;
   const signal = options.signal && timeout ? AbortSignal.any([options.signal, timeout]) : (options.signal ?? timeout);
@@ -141,6 +148,13 @@ export async function* streamInvoke(agent: TurnAgent, threadId: string, input: T
     failure = timeout?.aborted && !options.signal?.aborted ? new TurnTimeoutError(agent.limits!.turnTimeoutMs!) : error;
     throw failure;
   } finally {
+    // El registro de operación (fase 12, R8): cada turno, sin el texto de los mensajes.
+    const outcome = failure ? (signal?.aborted ? "pending" : "error") : !result ? "pending" : result.awaiting ? "awaiting" : "ok";
+    const entry = { threadId, kind: options.trace?.kind ?? "new", status: outcome, durationMs: Date.now() - started, costUsd: costOfUsage(tracker.usage()), ...(recorder && { traceId: recorder.id }) };
+    if (failure instanceof TurnTimeoutError) log.warn("turno-cortado-por-tiempo", failure.message, entry);
+    // Un fallo ya lo avisa quien corre el turno (la web o la terminal): acá va solo al archivo.
+    else if (failure && !signal?.aborted) log.record("error", "turno-fallo", { ...entry, error: failure });
+    else log.info("turno", entry);
     if (recorder && agent.traces) {
       // Sin resultado ni error: quien leía los eventos dejó de leer (se cerró la página) y el turno quedó a medias.
       const status: TraceStatus = failure ? (signal?.aborted ? "pending" : "error") : !result ? "pending" : result.awaiting ? "awaiting" : "ok";
@@ -160,9 +174,9 @@ const decisionText = (decision: HumanDecision) =>
 /** Guarda la traza sin frenar el turno: una falla se avisa en la consola y nada más (fase 11, R3). */
 function saveTrace(sink: TraceSink, trace: Parameters<TraceSink["save"]>[0]) {
   try {
-    sink.save(trace).catch((error) => console.warn(`[trazas] No se pudo guardar la traza ${trace.id}: ${(error as Error).message}`));
+    sink.save(trace).catch((error) => log.warn("traza-no-guardada", `[trazas] No se pudo guardar la traza ${trace.id}: ${(error as Error).message}`, { traceId: trace.id, error }));
   } catch (error) {
-    console.warn(`[trazas] No se pudo guardar la traza ${trace.id}: ${(error as Error).message}`);
+    log.warn("traza-no-guardada", `[trazas] No se pudo guardar la traza ${trace.id}: ${(error as Error).message}`, { traceId: trace.id, error });
   }
 }
 

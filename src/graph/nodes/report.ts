@@ -13,6 +13,7 @@ import { partsOf, renderReport, sectionStatus } from "../report/render.js";
 import { SECTIONS, type Report, type ReportPart, type Section } from "../report/state.js";
 import type { AgentModel } from "./agent.js";
 import type { RouterModel } from "./router.js";
+import { log } from "../../ops/log.js";
 
 /** Lo que leen los nodos del reporte: el estado del subgrafo de reportes (fase 7). */
 export interface ReportNodeState extends TaskState {
@@ -49,7 +50,7 @@ export function makePlanReportNode(
 ) {
   const now = options.now ?? (() => new Date());
   const newId = options.newId ?? randomUUID;
-  const warn = options.warn ?? ((message: string) => console.warn(message));
+  const warn = options.warn ?? ((message: string) => log.warn("reporte", message));
   return async (state: Pick<ReportNodeState, "messages" | "plan">): Promise<{ report: Report }> => {
     const transcript = formatTranscript(buildRouterContext(state.messages));
     // En un pedido de varias partes (fase 7), el planificador recibe además la parte que es el reporte.
@@ -122,7 +123,7 @@ export const READING_FAILED_NOTICE = "(No pude agregar la «Lectura» del report
 export const READING_DISCARDED_NOTICE = "(Descarté la «Lectura» del reporte porque citaba una cifra que no está en los datos; las de arriba son las correctas.)";
 
 export function makeComposeReportNode(model: AgentModel, options: { warn?: (message: string) => void } = {}) {
-  const warn = options.warn ?? ((message: string) => console.warn(message));
+  const warn = options.warn ?? ((message: string) => log.warn("reporte", message));
   return async (state: Pick<ReportNodeState, "report" | "reportParts">): Promise<{ messages: AIMessage[]; report: Report }> => {
     const planned = state.report;
     if (!planned) throw new Error("compose_report necesita un reporte planificado.");

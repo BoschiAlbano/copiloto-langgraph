@@ -1,6 +1,7 @@
 import pg from "pg";
 import { parseThreadId } from "../graph/thread-id.js";
 import type { Trace, TraceStatus, TurnKind } from "./trace-recorder.js";
+import { log } from "../ops/log.js";
 
 // Dónde se guardan las trazas (fase 11, R3, R4 y R6): en el mismo Postgres que los hilos, con el mismo rol
 // (`copilot_checkpointer`), en el esquema `observability` que crea `npm run db:observability`.
@@ -68,7 +69,7 @@ export class PostgresTraceStore implements TraceStore {
 
   constructor(
     private readonly pool: pg.Pool,
-    private readonly warn: (message: string) => void = (m) => console.warn(m),
+    private readonly warn: (message: string) => void = (m) => log.warn("trazas-sin-esquema", m),
   ) {}
 
   private missingSchema(error: unknown): boolean {

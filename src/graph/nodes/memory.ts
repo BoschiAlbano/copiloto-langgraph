@@ -8,6 +8,7 @@ import { checkMemory } from "../../memory/rules.js";
 import { deleteMemory, listMemories, MEMORY_KINDS, MEMORY_NAMESPACE, saveMemory, type Memory } from "../../memory/store.js";
 import { sharedTask, type TaskState } from "../plan.js";
 import type { RouterModel } from "./router.js";
+import { log } from "../../ops/log.js";
 
 // El agente de memoria (fase 8): un modelo barato decide QUÉ hacer (guardar, listar o borrar) y, al guardar, escribe la
 // memoria en una frase. Todo lo demás es código: los controles de qué no se guarda, la escritura en el Store y la
@@ -61,7 +62,7 @@ const toBusiness = (memories: Memory[]): BusinessMemory[] => memories.map(({ id,
 export function makeMemoryNode(model: MemoryModel | undefined, options: MemoryNodeOptions = {}) {
   const namespace = options.namespace ?? MEMORY_NAMESPACE;
   const now = options.now ?? (() => new Date());
-  const warn = options.warn ?? ((message: string) => console.warn(message));
+  const warn = options.warn ?? ((message: string) => log.warn("memoria", message));
   return async (state: TaskState, config?: LangGraphRunnableConfig) => {
     const reply = (text: string, memories?: Memory[]) => ({
       messages: [new AIMessage(text)],

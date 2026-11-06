@@ -6,6 +6,7 @@ import { getSalesSummary } from "../../tools/get-sales-summary.js";
 import { getStockLevels } from "../../tools/get-stock-levels.js";
 import { listAppointments } from "../../tools/list-appointments.js";
 import type { AppointmentsData, ReportPart, SalesData, Section, StockData } from "./state.js";
+import { log } from "../../ops/log.js";
 
 // Las tres secciones de un reporte. No llaman a ningún modelo: ejecutan las MISMAS funciones de lectura que las
 // herramientas del agente (mismos límites y mismas reglas), con el cliente del rol de solo lectura.
@@ -56,7 +57,7 @@ export async function runSection(section: Section, reportId: string, range: Sect
     // sale con error y el reporte dice cuál falta (fase 6).
     const data = await withRetry(() => RUNNERS[section](db, range), {
       onRetry: (info) => {
-        console.warn(`[reintento] sección ${section} ${info.attempt} de ${info.attempts}`);
+        log.warn("reintento", `[reintento] sección ${section} ${info.attempt} de ${info.attempts}`, { target: `section:${section}`, attempt: info.attempt, attempts: info.attempts });
         announceRetry({ target: `section:${section}`, attempt: info.attempt, attempts: info.attempts });
       },
     });

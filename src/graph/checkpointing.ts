@@ -1,5 +1,6 @@
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import pg from "pg";
+import { log } from "../ops/log.js";
 
 /** Esquema de Postgres donde LangGraph guarda los hilos, aparte de las tablas del negocio. */
 export const CHECKPOINT_SCHEMA = "langgraph";
@@ -19,7 +20,7 @@ export interface Checkpointing {
 export function createCheckpointing(url: string, { maxConnections = 5 } = {}): Checkpointing {
   const pool = new pg.Pool({ connectionString: url, max: maxConnections });
   // Sin este oyente, una conexión ociosa que se cae tumba el proceso entero.
-  pool.on("error", (error) => console.warn(`[checkpointer] conexión ociosa caída: ${error.message}`));
+  pool.on("error", (error) => log.warn("conexion-ociosa-caida", `[checkpointer] conexión ociosa caída: ${error.message}`, { error }));
   const saver = new PostgresSaver(pool, undefined, { schema: CHECKPOINT_SCHEMA });
   return { saver, pool, close: () => pool.end() };
 }
