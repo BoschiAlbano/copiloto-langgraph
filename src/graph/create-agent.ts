@@ -1,6 +1,6 @@
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import type { Env } from "../config/env.js";
-import { createPrisma } from "../db/client.js";
+import { ACTIONS_STATEMENT_TIMEOUT_MS, createPrisma } from "../db/client.js";
 import { ACTION_DEFINITIONS } from "../tools/actions/definitions.js";
 import { makeReadTools } from "../tools/index.js";
 import { makeActionRunner } from "./action-runner.js";
@@ -33,7 +33,7 @@ export function createAgent(
   options: { memoryNamespace?: string[]; wrapReadTools?: (tools: StructuredToolInterface[]) => StructuredToolInterface[] } = {},
 ) {
   const db = createPrisma(env.DATABASE_URL_READ);
-  const actionsDb = createPrisma(env.DATABASE_URL_ACTIONS);
+  const actionsDb = createPrisma(env.DATABASE_URL_ACTIONS, { statementTimeoutMs: ACTIONS_STATEMENT_TIMEOUT_MS });
   const readTools: StructuredToolInterface[] = makeReadTools(db);
   const tools = options.wrapReadTools ? options.wrapReadTools(readTools) : readTools;
   const checkpointing = createCheckpointing(env.DATABASE_URL_CHECKPOINTS);

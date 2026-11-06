@@ -29,16 +29,14 @@ for (const { variable, expectedRole } of roles) {
   }
 }
 
-// Fase 12 (R6): ninguna consulta de la aplicación tarda más de 10 s. Vale para cada sesión nueva de estos roles, también
-// por el pooler de Supabase. Una consulta cortada (código 57014) no es transitoria: la herramienta la informa como falla.
-const STATEMENT_TIMEOUT = "10s";
+// Fase 12 (R6): una consulta del rol de lectura no tarda más de 10 s, en las conexiones directas (las de la aplicación lo
+// fijan además al conectarse: el pooler de Supabase no aplica este). El de acciones ya tiene 5 s desde su migración
+// (fase 5). Una consulta cortada (código 57014) no es transitoria: la herramienta la informa como falla.
 const admin = new pg.Client({ connectionString: adminUrl });
 await admin.connect();
 try {
-  for (const { expectedRole } of roles) {
-    await admin.query(`ALTER ROLE ${admin.escapeIdentifier(expectedRole)} SET statement_timeout = ${admin.escapeLiteral(STATEMENT_TIMEOUT)}`);
-  }
-  console.log(`Límite de ${STATEMENT_TIMEOUT} por consulta para ${roles.map((r) => r.expectedRole).join(" y ")}.`);
+  await admin.query("ALTER ROLE copilot_reader SET statement_timeout = '10s'");
+  console.log("Límite por consulta: 10 s para copilot_reader (copilot_actions tiene 5 s, de su migración).");
 } finally {
   await admin.end();
 }

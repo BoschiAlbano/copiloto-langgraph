@@ -3,7 +3,7 @@ import { MemorySaver } from "@langchain/langgraph";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { loadEnvFile, parseEnv } from "../src/config/env.js";
-import { createPrisma } from "../src/db/client.js";
+import { ACTIONS_STATEMENT_TIMEOUT_MS, createPrisma } from "../src/db/client.js";
 import { claude } from "../src/graph/models.js";
 import { streamContinueTurn, streamRunTurn, TurnTimeoutError } from "../src/graph/run-turn.js";
 import { getStatus } from "../src/graph/threads.js";
@@ -94,24 +94,29 @@ describe.skipIf(!readUrl || !actionsUrl)("el límite de una consulta a la base (
     await actions.end();
   });
 
-  it("las conexiones de la aplicación (createPrisma) tienen 10 s por consulta, también por el pooler de Supabase", async () => {
-    for (const url of [readUrl!, actionsUrl!]) {
-      const db = createPrisma(url);
+  it("las conexiones de la aplicación (createPrisma) tienen su límite por consulta, también por el pooler de Supabase", async () => {
+    for (const [url, options, expected] of [
+      [readUrl!, {}, "10s"],
+      [actionsUrl!, { statementTimeoutMs: ACTIONS_STATEMENT_TIMEOUT_MS }, "5s"],
+    ] as const) {
+      const db = createPrisma(url, options);
       try {
         const rows = await db.$queryRawUnsafe<{ st: string }[]>("SELECT current_setting('statement_timeout') AS st");
-        expect(rows[0]!.st).toBe("10s");
+        expect(rows[0]!.st).toBe(expected);
       } finally {
         await db.$disconnect();
       }
     }
   });
 
-  it.skipIf(!process.env.DATABASE_URL_WRITE)("los roles también lo tienen, para las conexiones directas (npm run db:roles)", async () => {
+  it.skipIf(!process.env.DATABASE_URL_WRITE)("los roles también lo tienen, para las conexiones directas (db:roles y la migración de la fase 5)", async () => {
     const admin = new pg.Client({ connectionString: process.env.DATABASE_URL_WRITE });
     await admin.connect();
     try {
       const { rows } = await admin.query("SELECT rolname, rolconfig FROM pg_roles WHERE rolname IN ('copilot_reader', 'copilot_actions') ORDER BY rolname");
-      for (const r of rows) expect(r.rolconfig, r.rolname).toContain("statement_timeout=10s");
+      const config = Object.fromEntries(rows.map((r) => [r.rolname, r.rolconfig]));
+      expect(config.copilot_reader).toContain("statement_timeout=10s");
+      expect(config.copilot_actions, "el de la fase 5, sin tocar").toContain("statement_timeout=5s");
     } finally {
       await admin.end();
     }
