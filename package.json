@@ -35,7 +35,9 @@
     "db:checkpoints": "tsx src/db/checkpoints.ts",
     "db:observability": "tsx src/db/observability.ts",
     "db:seed": "tsx src/db/seed.ts",
-    "db:reset": "tsx src/db/reset.ts"
+    "db:reset": "tsx src/db/reset.ts",
+    "db:backup": "tsx src/ops/backup.ts",
+    "db:restore": "tsx src/ops/restore.ts"
   },
   "dependencies": {
     "@langchain/anthropic": "1.6.0",
