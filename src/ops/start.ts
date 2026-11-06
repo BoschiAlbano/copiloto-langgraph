@@ -18,6 +18,9 @@ if (isBundledDb(process.env.DATABASE_URL_WRITE ?? process.env.DATABASE_URL_CHECK
   await startBundledDb().catch((error: Error) => fail(error.message));
 }
 
+// Antes de servir nada, que todo esté en orden (R3): si no, la web arrancaría y fallaría en el primer pedido.
+if (!run("npx", ["tsx", "src/ops/doctor.ts"])) fail("Arreglá lo que marcó la revisión y volvé a correr `npm run start`.");
+
 /** La fecha de modificación más nueva de los archivos de una carpeta (sin node_modules ni .next). */
 function newest(dir: string): number {
   let latest = 0;

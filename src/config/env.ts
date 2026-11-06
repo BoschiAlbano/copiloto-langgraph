@@ -42,3 +42,15 @@ export function loadEnv(): Env {
   loadEnvFile();
   return parseEnv(process.env);
 }
+
+/**
+ * Lo mismo, para un comando de la terminal (fase 12, R4): si falta una variable, dice cuál y sale, sin la pila del error.
+ */
+export function loadEnvOrExit(): Env {
+  try {
+    return loadEnv();
+  } catch (error) {
+    console.error(`✗ ${(error as Error).message}`);
+    process.exit(1);
+  }
+}

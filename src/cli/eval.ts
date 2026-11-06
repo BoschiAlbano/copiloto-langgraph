@@ -5,7 +5,7 @@ import pg from "pg";
 import { CATEGORIES, conversationCases } from "../../evals/conversation-cases.js";
 import { runCase } from "../../evals/conversation.js";
 import { evalNamespace } from "../../evals/memory.js";
-import { loadEnv } from "../config/env.js";
+import { loadEnvOrExit } from "../config/env.js";
 import { createAgent } from "../graph/create-agent.js";
 import { promptsDir } from "../graph/prompts/read.js";
 import { byCase, byCategory, compareRuns, percent, summarize, type EvalCaseResult, type EvalRun } from "../observability/eval-report.js";
@@ -45,7 +45,7 @@ else await runSet();
 
 /** Una corrida del set: los casos en orden, N veces; el informe; la corrida en Postgres. */
 async function runSet() {
-  const env = loadEnv();
+  const env = loadEnvOrExit();
   const prompts = promptsDir() ?? "actuales";
   const agent = createAgent(env, { memoryNamespace: evalNamespace() });
   const reader = new pg.Client({ connectionString: env.DATABASE_URL_READ });
@@ -132,7 +132,7 @@ async function runComparison(dir: string) {
   const a = child(undefined, "prompts actuales");
   const b = child(dir, `prompts de ${dir}`);
 
-  const env = loadEnv();
+  const env = loadEnvOrExit();
   const agent = createAgent(env);
   try {
     const [runA, runB] = await Promise.all([agent.evals.get(a), agent.evals.get(b)]);

@@ -58,4 +58,6 @@ if (!existsSync("web/node_modules")) {
 }
 
 void env;
+console.log("\n▸ Revisión final (npm run doctor)");
+if (!run("npx", ["tsx", "src/ops/doctor.ts"])) fail("La revisión encontró problemas: arreglalos y volvé a correr `npm run setup`.");
 console.log("\n✓ Listo. Para usarlo: npm run start   (la web queda en http://127.0.0.1:3000)");

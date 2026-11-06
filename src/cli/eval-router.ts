@@ -1,5 +1,5 @@
 import { checkCriteria, evaluateClarifications, evaluateRouter, formatReport } from "../../evals/router.js";
-import { loadEnv } from "../config/env.js";
+import { loadEnvOrExit } from "../config/env.js";
 import { makeClarifyModel, makeRouterModel } from "../graph/models.js";
 
 // Evalúa el router con los 30 casos congelados de evals/router-cases.ts.
@@ -8,7 +8,7 @@ import { makeClarifyModel, makeRouterModel } from "../graph/models.js";
 const runsArg = process.argv.indexOf("--runs");
 const runs = runsArg === -1 ? 1 : Math.max(1, Number(process.argv[runsArg + 1]) || 1);
 
-const env = loadEnv();
+const env = loadEnvOrExit();
 const router = makeRouterModel(env);
 const clarify = makeClarifyModel(env);
 

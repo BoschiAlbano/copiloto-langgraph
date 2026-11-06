@@ -1,4 +1,4 @@
-import { loadEnv } from "../config/env.js";
+import { loadEnvOrExit } from "../config/env.js";
 import { createAgent } from "../graph/create-agent.js";
 import pg from "pg";
 import { mondayInThreeWeeks } from "../../evals/action-cases.js";
@@ -76,7 +76,7 @@ const CASES: Case[] = [
 const onlyExtra = process.argv.includes("--extra");
 const cases = onlyExtra ? CASES.filter((c) => c.group === "extra") : CASES;
 
-const env = loadEnv();
+const env = loadEnvOrExit();
 // Memoria en un namespace propio: el bench no toca las memorias del negocio.
 const agent = createAgent(env, { memoryNamespace: evalNamespace() });
 

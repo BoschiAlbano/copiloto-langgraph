@@ -10,6 +10,7 @@
     "setup": "tsx src/ops/setup.ts",
     "start": "tsx src/ops/start.ts",
     "stop": "tsx src/ops/stop.ts",
+    "doctor": "tsx src/ops/doctor.ts",
     "chat": "tsx src/cli/chat.ts",
     "web": "npm --prefix web run dev",
     "web:build": "npm --prefix web run build",
