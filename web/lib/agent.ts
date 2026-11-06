@@ -23,6 +23,7 @@ function init() {
     graph: agent.graph,
     traces: agent.traces,
     evals: agent.evals,
+    limits: agent.limits,
     listThreads: () => listThreads({ pool: agent.pool, graph: agent.graph }),
     memory: agent.memory,
   })
