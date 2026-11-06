@@ -1,6 +1,6 @@
 # Fase 12: Empaquetado y operación local
 
-Estado: **en curso** (spec aprobada)
+Estado: **terminada** (etiqueta `fase-12`): **el proyecto terminó**
 
 ## Objetivo
 Dejar el copiloto listo para levantarse desde cero, con pocos comandos y sin servicios externos salvo la API de Claude, y para operarlo:
@@ -94,18 +94,18 @@ Existe de las fases anteriores (etiqueta `fase-11`):
   Aparece en `/doc`.
 
 ## Criterios de aceptación
-- [ ] CA1 (clon limpio): en una carpeta nueva, `git clone` del repositorio y lo que dice el README (`npm install`, copiar `.env.example`, poner la clave de la API, `npm run setup`, `npm run start`) dejan el copiloto respondiendo con los datos de prueba: «¿Cuántos turnos hay mañana?» contesta la cantidad que da SQL, en la web y en la terminal. Se hace con la base propia, sin tocar tu Supabase.
-- [ ] CA2 (configuración): sin `.env`, con una variable de menos o con una inválida, la terminal, la web, `setup` y `start` no arrancan y el mensaje nombra la variable. `doctor` señala cada problema, con una base caída, un rol sin contraseña, un esquema que falta y una clave inválida (con tests).
-- [ ] CA3 (límites):
+- [x] CA1 (clon limpio): en una carpeta nueva, `git clone` del repositorio y lo que dice el README (`npm install`, copiar `.env.example`, poner la clave de la API, `npm run setup`, `npm run start`) dejan el copiloto respondiendo con los datos de prueba: «¿Cuántos turnos hay mañana?» contesta la cantidad que da SQL, en la web y en la terminal. Se hace con la base propia, sin tocar tu Supabase.
+- [x] CA2 (configuración): sin `.env`, con una variable de menos o con una inválida, la terminal, la web, `setup` y `start` no arrancan y el mensaje nombra la variable. `doctor` señala cada problema, con una base caída, un rol sin contraseña, un esquema que falta y una clave inválida (con tests).
+- [x] CA3 (límites):
   - con el tope de gasto alcanzado, el turno no llama al modelo y lo dice, en la web y en la terminal;
   - una llamada al modelo que no responde se corta a su tiempo;
   - una consulta lenta (`pg_sleep`) se corta con el `statement_timeout`, y la herramienta lo informa como falla;
   - un turno que se pasa de su tiempo queda a medias y «Continuar» lo termina.
 
   Todo con tests, con modelos falsos o con la base.
-- [ ] CA4 (registros): un turno, un reintento, un corte y un error dejan sus líneas en el archivo del día, sin el texto de los mensajes. Los archivos de más de 14 días se borran.
-- [ ] CA5 (respaldo): R11 pasa, y la guía de operación tiene la restauración probada paso a paso.
-- [ ] CA6: pasan los tests de las fases 2 a 11, `npm test`, los typecheck, `npm run web:build` y las pruebas del navegador. Hay checklist de operación cumplida, y la documentación queda al día (README, plan, mapa del grafo, `/doc`). La spec y el plan dicen que el proyecto terminó.
+- [x] CA4 (registros): un turno, un reintento, un corte y un error dejan sus líneas en el archivo del día, sin el texto de los mensajes. Los archivos de más de 14 días se borran.
+- [x] CA5 (respaldo): R11 pasa, y la guía de operación tiene la restauración probada paso a paso.
+- [x] CA6: pasan los tests de las fases 2 a 11, `npm test`, los typecheck, `npm run web:build` y las pruebas del navegador. Hay checklist de operación cumplida, y la documentación queda al día (README, plan, mapa del grafo, `/doc`). La spec y el plan dicen que el proyecto terminó.
 
 ## Fuera de alcance
 - Que la web o el grafo corran en contenedores (ver la pregunta abierta 2).
@@ -253,7 +253,7 @@ Costo de esta fase en la API: casi nada. Solo el ensayo del clon limpio (un par 
 - **La base propia vuelve sola si Docker se reinicia** (`restart: unless-stopped`). Si Docker Desktop se cierra, no hay forma de levantarla desde el copiloto: `setup` y `start` lo detectan y piden abrirlo.
 - **Probado sin tocar tu `.env`**: las variables puestas en la terminal tienen prioridad sobre las del archivo, también para Prisma. Así se armó una base propia completa en el puerto 54329 mientras tu Supabase seguía en el 5432.
 - **`doctor` entra con cada rol, en vez de solo mirar si la base responde** (T3): así detecta una contraseña que no coincide, el error más común al copiar un `.env`. Si la base no responde, lo dice una sola vez y no sigue probando tablas, pero revisa la clave de la API igual. La URL del dueño es opcional (la aplicación no la usa); si está, revisa también las migraciones. Con tu Supabase, el pooler devuelve el rol sin el sufijo del tenant, así que la comprobación sirve para las dos bases.
-- **La web valida la configuración al arrancar** (`web/instrumentation.ts`, el gancho de arranque de Next). Si falta una variable, dice cuál y el proceso termina, en vez de servir páginas que fallan en el primer pedido. Next llega a decir «Ready» antes, porque el gancho corre al terminar de arrancar.
+- **La web valida la configuración al arrancar** (`web/instrumentation.ts`, el gancho de arranque de Next). Si falta una variable, dice cuál y el proceso termina, en vez de servir páginas que fallan en el primer pedido. Next llega a decir «Ready» antes, porque el gancho corre al terminar de arrancar. La validación vive en `web/instrumentation-node.ts`, y `instrumentation.ts` solo la importa cuando `NEXT_RUNTIME` es `nodejs`. Así Next no la compila para el runtime edge. Con la importación de `node:fs` adentro de `instrumentation.ts`, el empaquetado de webpack fallaba (`UnhandledSchemeError`) y las páginas daban 500 en modo desarrollo.
 - **Los comandos de la terminal que mostraban la pila del error** (`bench`, `eval-router`, `eval`) ahora usan `loadEnvOrExit`: el mismo mensaje, sin la pila. Los demás ya lo hacían.
 - **El pooler de Supabase neutraliza el `statement_timeout` del rol** (T4). Supavisor aplica `default_transaction_read_only` (la configuración del rol de lectura de la fase 2), pero deja `statement_timeout` en el valor de fábrica, y también ignora el que el cliente pide al conectarse. Respeta, en cambio, el de la sesión. Por eso `createPrisma` fija el límite con un `SET statement_timeout` al abrir cada conexión (en un `pg.Pool` propio, que el adaptador de Prisma cierra con `$disconnect`). Probado a través del pooler: `pg_sleep(12)` se cortó a los 10.032 ms con el código `57014`. `npm run db:roles` lo fija además en los roles, para las conexiones directas, como las de la base propia.
 - **Un corte por tiempo no se confunde con «se cerró la página».** El límite del turno se une a la señal de quien lo pidió. Si el que cortó fue el límite, el error es `TurnTimeoutError`, con un mensaje para la persona («El turno superó el límite de 180 s y se cortó. Quedó a medias: podés continuarlo»), que la web muestra como error del turno y la terminal, como siempre. La traza queda «a medias». Si la persona cierra la página, todo sigue como en la fase 9.
@@ -271,3 +271,15 @@ Costo de esta fase en la API: casi nada. Solo el ensayo del clon limpio (un par 
 - **El ensayo del clon limpio** (CA1, T8): `git clone` en una carpeta nueva, `npm install`, copiar `.env.example` con la clave de la API, `npm run setup` y `npm run start`. La base propia se creó desde cero: se había borrado la de las pruebas, con su volumen. «¿Cuántos turnos hay mañana?» contestó 23, lo mismo que da SQL en esa base, por la web («Mañana, sábado 7 de noviembre, hay 23 turnos») y por la terminal. `npm run stop` paró la base al final. Encontró dos cosas:
   - **npm 11.16 bloquea los scripts de instalación** de `prisma`, `@prisma/engines` y `esbuild` (avisa con `allow-scripts`). No hacen falta: `prisma generate` y `tsx` andan sin ellos. La guía lo explica para que el aviso no asuste.
   - **`doctor` se caía al salir en Windows** («Assertion failed … src\win\async.c»): un error conocido de Node con `process.exit()` mientras se cierra la conexión de `fetch` a la API. `setup` lo tomaba como una revisión fallida. Ahora deja el código en `process.exitCode` y termina solo (probado 3 veces seguidas, más `setup` completo).
+
+## Qué aprendí
+- **«Desde cero» se prueba desde cero.** El ensayo del clon limpio encontró dos cosas que ninguna prueba en la carpeta de trabajo veía: npm 11 bloquea scripts de instalación (que por suerte no hacían falta), y `doctor` se caía al salir en Windows. La primera vez que algo corre en una carpeta nueva es distinta de la centésima en la de siempre.
+- **El copiloto necesitaba mucho menos que Supabase.** Usaba solo Postgres: tablas, roles, RLS y dos esquemas. Un Postgres 17 en un contenedor, con un script de una línea para el esquema `extensions`, alcanzó para que pasaran los 836 tests. Ninguna migración tuvo que cambiar.
+- **Un pooler no es una base.** Supavisor aplica parte de la configuración de un rol (la sesión de solo lectura) y no aplica otra (el `statement_timeout`), sin avisar. Lo que tiene que valer siempre se fija en la sesión, al conectarse, y se prueba a través del pooler, no solo en directo.
+- **Restaurar es más delicado que respaldar.** `pg_restore --clean` borra y recrea los esquemas, y el respaldo no reconstruye lo que Postgres da de fábrica: el permiso de uso de `public` desapareció en una prueba a mano, y un test de la fase 5 lo detectó en el acto. Con una base compartida, además, el esquema `public` no es solo del copiloto. Por eso la restauración nunca lo toca, va en una sola transacción y respalda antes lo que hay.
+- **Los datos de la fase 11 sirvieron para operar.** El tope de gasto diario no necesitó contar nada nuevo: suma el costo que cada traza ya guardaba. Medir bien una fase hace más fácil la siguiente.
+- **El servidor de LangGraph no era para esto.** Resuelve el streaming, la persistencia y la reconexión de varios clientes. Pero el copiloto ya tenía su propia versión de cada cosa, construida fase a fase, y el servidor en Docker pide LangSmith. Entenderlo, y saber por qué no se usa, fue parte del aprendizaje.
+- **Dudas que quedan para después del proyecto:**
+  - si conviene reconectar la web a un turno en curso (lo que daría el servidor de LangGraph);
+  - si las evaluaciones deberían correr con la API Batch (a la mitad de precio);
+  - el caso A4 inestable (cancelar «el próximo turno» cuando hay dos el mismo día).

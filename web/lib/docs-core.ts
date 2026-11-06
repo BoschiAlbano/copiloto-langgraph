@@ -40,6 +40,8 @@ export function buildRegistry(specFiles: string[]): DocEntry[] {
   return [
     { slug: "inicio", file: "README.md", group: "intro", label: "Inicio" },
     { slug: "plan", file: PLAN_FILE, group: "intro", label: "Plan del proyecto" },
+    // Fase 12: la guía de operación (arrancar, revisar, respaldar, límites, registros).
+    { slug: "operacion", file: "doc/operacion.md", group: "intro", label: "Guía de operación" },
     ...phases,
     ...reference,
   ]

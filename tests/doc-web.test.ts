@@ -10,7 +10,7 @@ const registry = buildRegistry(specFiles);
 describe("la lista de documentos (R2, R6)", () => {
   it("tiene README, plan, una página por fase (en orden) y las de referencia", () => {
     const slugs = registry.map((d) => d.slug);
-    expect(slugs.slice(0, 2)).toEqual(["inicio", "plan"]);
+    expect(slugs.slice(0, 3)).toEqual(["inicio", "plan", "operacion"]);
     const phases = registry.filter((d) => d.group === "phase");
     expect(phases.length).toBeGreaterThanOrEqual(9);
     expect(phases.map((d) => d.phase)).toEqual([...phases.map((d) => d.phase!)].sort((a, b) => a - b));
@@ -91,7 +91,8 @@ describe("links entre documentos (R4) y anterior/siguiente", () => {
   });
 
   it("anterior y siguiente recorren las fases en orden", () => {
-    expect(neighbors(registry, "fase-01")).toMatchObject({ previous: { slug: "plan" }, next: { slug: "fase-02" } });
+    expect(neighbors(registry, "fase-01")).toMatchObject({ previous: { slug: "operacion" }, next: { slug: "fase-02" } });
+    expect(neighbors(registry, "operacion")).toMatchObject({ previous: { slug: "plan" } });
     expect(neighbors(registry, "inicio").previous).toBeUndefined();
     expect(neighbors(registry, "no-existe")).toEqual({});
   });

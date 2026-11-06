@@ -19,6 +19,7 @@ Convención de los diagramas: **línea continua** = arista fija (siempre ocurre)
 | 9 | 9 (los mismos) | 9 | 7 | 16 (más 4, 10 y 8 dentro de los subgrafos) | los mismos que en la fase 8 | Streaming: el turno corre con `graph.stream` (modos `values`, `updates` y `messages`, con subgrafos) y un chat web lo muestra en vivo. Cambia cómo se invoca el grafo, no su forma |
 | 10 | 9 en el principal (los mismos); consultas y acciones suman `recover` (3 y 6 nodos) | 9 | 7 | 16 (más 6, 12 y 8 dentro de los subgrafos) | los mismos que en la fase 9 | Errores y viaje en el tiempo: reintentos de las lecturas (`retryPolicy` en `load_memory`, `withRetry` en herramientas y secciones), un tope de 4 rondas que sale por `recover`, segundo intento ante salidas mal formadas, y bifurcar el hilo desde un checkpoint para editar o reintentar un turno |
 | 11 | 9 en el principal (los mismos); subgrafos sin cambios | 9 | 7 | 16 (más 6, 12 y 8 dentro de los subgrafos) | los mismos que en la fase 10 | Observabilidad: un callback más (`TraceRecorder`) arma el árbol de cada turno a partir de lo que informa LangGraph, y un set de 36 conversaciones lo evalúa. Cambia cómo se observa el grafo, no su forma |
+| 12 | 9 (los mismos); subgrafos sin cambios | 9 | 7 | 16 (más 6, 12 y 8 dentro de los subgrafos) | los mismos que en la fase 11 | Empaquetado y operación: el grafo no cambia. Cambia cómo se lo levanta (base propia, `setup`, `start`) y cómo se lo opera (`doctor`, tope de gasto antes de cada turno, límites de tiempo, registro, respaldos) |
 
 Qué cambió de la fase 1 a la 2: el nodo `chat` pasó a llamarse `agent` y ahora puede pedir herramientas; apareció el nodo `tools`; la arista `chat → END` se volvió condicional (`agent → END` solo si no hay llamadas pendientes) y se sumó `tools → agent`, que cierra el ciclo.
 
@@ -602,8 +603,29 @@ flowchart LR
 
 ---
 
-## Próximas fases (planeado, aún no existe)
+## Fase 12: empaquetado y operación local (`fase-12`)
 
-| Fase | Cambio previsto en el grafo |
+El grafo es el de la fase 11. Lo nuevo está alrededor: cómo se levanta y qué lo limita.
+
+```mermaid
+flowchart LR
+    T["un turno<br/>(web o terminal)"] --> B{"¿se pasó el tope<br/>de gasto de hoy?"}
+    B -- sí --> X["aviso, sin llamar al modelo<br/>(el hilo queda igual)"]
+    B -- no --> G[["grafo de la fase 11<br/>señal: la página + 3 min"]]
+    G -->|"cada llamada al modelo"| M["60 s"]
+    G -->|"cada consulta a la base"| D["10 s (5 s las acciones)"]
+    G --> L[("logs/ · trazas")]
+```
+
+| Situación | Qué pasa |
 | --- | --- |
-| 12 | El grafo corre en el servidor local de LangGraph, con límites de tiempo por nodo y la guía de operación |
+| El tope del día está alcanzado | El turno no empieza: no se llama al modelo ni se toca el hilo |
+| Una llamada al modelo no responde | Se corta a los 60 s y LangChain la reintenta |
+| Una consulta tarda más de 10 s | Postgres la corta (57014) y la herramienta lo informa como falla |
+| El turno pasa los 3 minutos | Se corta como si se cerrara la página: el hilo queda a medias y «Continuar» lo retoma |
+
+---
+
+## El proyecto terminó
+
+Las doce fases del plan están hechas. El grafo final es el de la fase 10, que la 11 y la 12 no cambiaron de forma: 9 nodos en el grafo principal, con tres subgrafos (consultas, acciones y reportes) coordinados por un supervisor.
